@@ -108,6 +108,13 @@ internal static class OoxMarkupCompatibility
             {
                 unrecognized |= HasUnrecognizedMustUnderstand(element);
                 XElement? selected = element.Elements(compatibility + "Choice").FirstOrDefault(IsUnderstoodChoice);
+                // The VML branch of an OLE object references a legacy drawing shape; the
+                // fallback carries the same object with its preview picture, which is
+                // what gets painted.
+                if (selected is not null && HasOlePreview(element.Element(compatibility + "Fallback")) && !HasOlePreview(selected))
+                {
+                    selected = null;
+                }
                 if (selected is null)
                 {
                     selected = element.Element(compatibility + "Fallback");
@@ -139,6 +146,11 @@ internal static class OoxMarkupCompatibility
                 child = next;
             }
         }
+    }
+
+    private static bool HasOlePreview(XElement? branch)
+    {
+        return branch?.Elements(OoxNamespaces.PresentationNamespace + "oleObj").Elements(OoxNamespaces.PresentationNamespace + "pic").Any() == true;
     }
 
     private static bool IsIgnorableExtension(XElement element, out bool processContent, CancellationToken cancellationToken)

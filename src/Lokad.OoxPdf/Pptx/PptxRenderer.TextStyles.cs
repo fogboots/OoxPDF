@@ -258,6 +258,21 @@ internal sealed partial class PptxRenderer
         return theme.ResolveTypefaceWithSource(ReadTypeface(runProperties) ?? ReadTypeface(defaultRunProperties));
     }
 
+    // RV01: runs set in a symbol font, and private-use symbol characters routed to
+    // the a:sym font, carry their Unicode meaning so hosts without the symbol font
+    // still draw and extract them.
+    private static string MapSymbolRunText(string text, PptxRunStyleCascade cascade)
+    {
+        string? latin = cascade.Sources.Select(source => (string?)source?.Element(DrawingNamespace + "latin")?.Attribute("typeface")).FirstOrDefault(typeface => typeface is not null);
+        if (SymbolFontText.IsSymbolFamily(latin))
+        {
+            return SymbolFontText.ToUnicode(latin, text);
+        }
+
+        string? symbol = cascade.Sources.Select(source => (string?)source?.Element(DrawingNamespace + "sym")?.Attribute("typeface")).FirstOrDefault(typeface => typeface is not null);
+        return SymbolFontText.PrivateUseToUnicode(symbol, text);
+    }
+
     private static string? ReadTypeface(XElement? runProperties)
     {
         return (string?)(runProperties?.Element(DrawingNamespace + "latin") ??

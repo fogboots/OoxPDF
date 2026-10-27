@@ -536,6 +536,10 @@ internal sealed class PdfGraphicsBuilder
             builder.Append(PdfDocumentWriter.FormatNumber(strokeWidth)).AppendLine(" w");
             builder.Append(textRenderingMode.ToString(CultureInfo.InvariantCulture)).AppendLine(" Tr");
         }
+        else if (textRenderingMode == 3)
+        {
+            builder.AppendLine("3 Tr");
+        }
 
         builder.Append('/').Append(PdfEmbeddedFont.SanitizeName(fontResourceName)).Append(' ').Append(PdfDocumentWriter.FormatNumber(fontSize)).AppendLine(" Tf");
         builder.Append(Math.Abs(characterSpacing) > 0.001d ? PdfDocumentWriter.FormatNumber(characterSpacing) : "0").AppendLine(" Tc");
@@ -561,7 +565,7 @@ internal sealed class PdfGraphicsBuilder
             builder.Append(PdfDocumentWriter.FormatNumber(ra)).Append(' ').Append(PdfDocumentWriter.FormatNumber(rb)).Append(' ').Append(PdfDocumentWriter.FormatNumber(rc)).Append(' ').Append(PdfDocumentWriter.FormatNumber(rd)).Append(' ').Append(PdfDocumentWriter.FormatNumber(x)).Append(' ').Append(PdfDocumentWriter.FormatNumber(y)).AppendLine(" Tm");
         }
         builder.AppendLine(textOperator);
-        if (textRenderingMode is 1 or 2)
+        if (textRenderingMode is 1 or 2 or 3)
         {
             builder.AppendLine("0 Tr");
         }

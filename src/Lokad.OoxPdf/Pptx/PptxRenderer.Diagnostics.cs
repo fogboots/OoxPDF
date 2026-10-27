@@ -92,7 +92,7 @@ internal sealed partial class PptxRenderer
         }
 
         if (sceneSlide.HasOleObject ||
-            slideXml.Descendants(PresentationNamespace + "oleObj").Any())
+            slideXml.Descendants(PresentationNamespace + "oleObj").Any(ole => ole.Element(PresentationNamespace + "pic") is null))
         {
             Emit("PPTX_UNSUPPORTED_OLE_OBJECT", "OLE object");
         }
@@ -568,7 +568,7 @@ internal sealed partial class PptxRenderer
         XElement? graphicData = graphicFrame
             .Descendants(DrawingNamespace + "graphicData")
             .FirstOrDefault();
-        if (graphicData is null || PptxSceneBuilder.IsSmartArtGraphicFrame(graphicFrame))
+        if (graphicData is null || PptxSceneBuilder.IsSmartArtGraphicFrame(graphicFrame) || PptxSceneBuilder.ReadOlePreviewPicture(graphicFrame) is not null)
         {
             return false;
         }

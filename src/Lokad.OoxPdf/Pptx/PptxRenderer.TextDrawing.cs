@@ -353,10 +353,14 @@ internal sealed partial class PptxRenderer
     {
         int[] codepoints = group.SelectMany(use => use.CodePoints).ToArray();
         List<int>? missing = null;
+        TextAdvanceEstimator? estimator = null;
         foreach (int codePoint in codepoints)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!PdfFallbackFont.IsNonRenderedControl(codePoint) && font.MapCodePoint(codePoint) == 0)
+            // Emission splits runes the primary face lacks onto covering fallback
+            // faces, so only runes no face covers become question marks.
+            if (!PdfFallbackFont.IsNonRenderedControl(codePoint) && font.MapCodePoint(codePoint) == 0 &&
+                (estimator ??= new TextAdvanceEstimator(fontResolver, cancellationToken)).ResolveGlyphFont(group.Key.FamilyName, group.Key.Bold, group.Key.Italic, codePoint) is null)
             {
                 missing ??= new List<int>();
                 if (!missing.Contains(codePoint))
@@ -1244,13 +1248,16 @@ internal sealed partial class PptxRenderer
 
     private static void DrawGlyphText(PdfGraphicsBuilder graphics, TextGlyphRun glyphRun)
     {
-        if (ShouldDrawGlyphOutlinePath(glyphRun))
+        // Translucent text paints as one glyph path so overlapping contours do not
+        // double the alpha; invisible text over it keeps the run extractable.
+        bool outlinePath = ShouldDrawGlyphOutlinePath(glyphRun);
+        if (outlinePath)
         {
             DrawGlyphOutlinePath();
-            return;
         }
 
         TextRun run = glyphRun.Source;
+        int renderingMode = outlinePath ? 3 : TextRenderingMode(glyphRun);
         double pdfFontSize = glyphRun.PdfFontSize;
         if (glyphRun.PositioningArray is null)
         {
@@ -1265,7 +1272,7 @@ internal sealed partial class PptxRenderer
                 glyphRun.GlyphHex,
                 glyphRun.SyntheticItalic,
                 characterSpacing: glyphRun.PdfCharacterSpacing,
-                textRenderingMode: TextRenderingMode(glyphRun),
+                textRenderingMode: renderingMode,
                 strokeRed: TextStrokeColor(glyphRun).Red,
                 strokeGreen: TextStrokeColor(glyphRun).Green,
                 strokeBlue: TextStrokeColor(glyphRun).Blue,
@@ -1285,7 +1292,7 @@ internal sealed partial class PptxRenderer
                 glyphRun.PositioningArray,
                 glyphRun.SyntheticItalic,
                 characterSpacing: glyphRun.PdfCharacterSpacing,
-                textRenderingMode: TextRenderingMode(glyphRun),
+                textRenderingMode: renderingMode,
                 strokeRed: TextStrokeColor(glyphRun).Red,
                 strokeGreen: TextStrokeColor(glyphRun).Green,
                 strokeBlue: TextStrokeColor(glyphRun).Blue,

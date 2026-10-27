@@ -300,7 +300,7 @@ internal sealed partial class PptxSceneBuilder
 
         bool HasSlideOleObject(XDocument slideXml)
         {
-            return slideXml.Descendants(PresentationNamespace + "oleObj").Any();
+            return slideXml.Descendants(PresentationNamespace + "oleObj").Any(ole => ole.Element(PresentationNamespace + "pic") is null);
         }
 
         bool HasSlideTiming(XDocument slideXml)
@@ -407,6 +407,13 @@ internal sealed partial class PptxSceneBuilder
                 continue;
             }
 
+            // OLE frames paint their preview picture, as Office shows an inactive object.
+            XElement source = kind == PptxSceneNodeKind.UnknownGraphicFrame && ReadOlePreviewPicture(child) is { } preview ? preview : child;
+            if (source != child)
+            {
+                kind = PptxSceneNodeKind.Picture;
+            }
+
             XElement? nonVisualProperties = ReadNonVisualProperties(child);
             // Exclude hidden objects before their text, images, charts or group
             // children enter resource preflight and painting.
@@ -422,18 +429,40 @@ internal sealed partial class PptxSceneBuilder
                 IsPlaceholder(child),
                 kind == PptxSceneNodeKind.UnknownGraphicFrame && IsSmartArtGraphicFrame(child),
                 ReadHyperlinkClick(nonVisualProperties),
-                ReadBounds(child),
+                ReadBounds(child) ?? ReadInheritedPlaceholderBounds(child, placeholderSources),
                 kind is PptxSceneNodeKind.Shape or PptxSceneNodeKind.Connector ? ReadShape(child, theme, colorMap, package, relationships) : null,
                 ReadTextBody(child, placeholderSources),
-                kind == PptxSceneNodeKind.Picture ? ReadPicture(child, theme, colorMap, package, relationships) : null,
+                kind == PptxSceneNodeKind.Picture ? ReadPicture(source, theme, colorMap, package, relationships) : null,
                 kind == PptxSceneNodeKind.Table ? ReadTable(child, theme, colorMap) : null,
                 kind == PptxSceneNodeKind.Chart ? ReadChart(child, package, theme, colorMap, relationships, cancellationToken) : null,
                 kind == PptxSceneNodeKind.Group ? ReadGroupTransform(child) : PptxSceneGroupTransform.Identity,
                 kind == PptxSceneNodeKind.Group ? ReadChildNodes(child, placeholderSources, theme, colorMap, package, relationships, cancellationToken) : [],
-                child));
+                source));
         }
 
         return nodes;
+    }
+
+    // A placeholder without its own frame takes the nearest layout or master frame.
+    private static PptxSceneBounds? ReadInheritedPlaceholderBounds(XElement element, IReadOnlyList<XDocument> placeholderSources)
+    {
+        IReadOnlyList<XElement> inherited = PptxPlaceholderMatcher.FindInheritedPlaceholderShapes(element, placeholderSources);
+        for (int level = inherited.Count - 1; level >= 0; level--)
+        {
+            if (ReadBounds(inherited[level]) is { } bounds)
+            {
+                return bounds;
+            }
+        }
+
+        return null;
+    }
+
+    internal static XElement? ReadOlePreviewPicture(XElement graphicFrame)
+    {
+        return graphicFrame.Name == PresentationNamespace + "graphicFrame"
+            ? graphicFrame.Descendants(PresentationNamespace + "oleObj").Elements(PresentationNamespace + "pic").FirstOrDefault()
+            : null;
     }
 
     internal static PptxSceneNodeKind ReadNodeKind(XElement element)

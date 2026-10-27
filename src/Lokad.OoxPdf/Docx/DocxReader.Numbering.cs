@@ -323,6 +323,12 @@ internal sealed partial class DocxReader
 
     private static string ResolveNumberingSymbolText(string text, DocxTextRunStyle style, DocxFontCatalog fontCatalog)
     {
+        string? family = FirstNonEmpty(style.Fonts.Ascii, style.Fonts.HighAnsi, style.FontFamily, style.Fonts.ComplexScript);
+        if (SymbolFontText.IsSymbolFamily(family) && !text.Contains('%'))
+        {
+            return SymbolFontText.ToUnicode(family, text);
+        }
+
         return UsesSymbolCharset(style, fontCatalog) ? MapSymbolCharsetText(text) : text;
     }
 

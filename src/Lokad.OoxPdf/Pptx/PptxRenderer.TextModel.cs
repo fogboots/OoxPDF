@@ -242,9 +242,14 @@ internal sealed partial class PptxRenderer
         XElement? inheritedTextBody = BuildEffectiveInheritedTextBody();
         ShapeBounds? bounds = shapeProperties is null ? null : ReadBounds(shapeProperties);
         bool usesInheritedShapeBounds = bounds is null && inheritedPlaceholder?.Element(PresentationNamespace + "spPr") is not null;
-        if (bounds is null && inheritedPlaceholder?.Element(PresentationNamespace + "spPr") is { } inheritedProperties)
+        // A layout placeholder with an empty spPr inherits its frame from the
+        // master, so walk outward until a level supplies one.
+        for (int level = inheritedPlaceholders.Count - 1; bounds is null && level >= 0; level--)
         {
-            bounds = ReadBounds(inheritedProperties);
+            if (inheritedPlaceholders[level].Element(PresentationNamespace + "spPr") is { } inheritedProperties)
+            {
+                bounds = ReadBounds(inheritedProperties);
+            }
         }
         if (bounds is null || textBody is null)
         {
@@ -739,7 +744,7 @@ internal sealed partial class PptxRenderer
                     child,
                     runProperties,
                     textRunCascade,
-                    ReadTextElementText(child, slideNumber),
+                    MapSymbolRunText(ReadTextElementText(child, slideNumber), textRunCascade),
                     ResolveRunTextStyle(textRunCascade, shapeFontColor, theme, colorMap, fontScale, tableStyleTextStyle, disableParagraphZeroKerning)));
             }
 
@@ -850,7 +855,7 @@ internal sealed partial class PptxRenderer
                 child,
                 runProperties,
                 textRunCascade,
-                ReadTextElementText(child, slideNumber),
+                MapSymbolRunText(ReadTextElementText(child, slideNumber), textRunCascade),
                 ResolveRunTextStyle(textRunCascade, shapeFontColor, theme, colorMap, fontScale, tableStyleTextStyle, disableZeroKerning)));
         }
 
@@ -955,9 +960,11 @@ internal sealed partial class PptxRenderer
 
         if ((string?)paragraphProperties.Element(DrawingNamespace + "buChar")?.Attribute("char") is { } character)
         {
-            string resolvedCharacter = IsSymbolBulletFont(bulletFont)
-                ? MapSymbolBulletText(character)
-                : character;
+            string resolvedCharacter = SymbolFontText.IsSymbolFamily(fontTypeface)
+                ? SymbolFontText.ToUnicode(fontTypeface, character)
+                : IsSymbolBulletFont(bulletFont)
+                    ? MapSymbolBulletText(character)
+                    : character;
             return new PptxParagraphBulletModel(PptxParagraphBulletKind.Character, character, resolvedCharacter, null, null, null, fontTypeface, fontCharset, FontFaceResolution.Typeface, FontFaceResolution.Source, color, sizeKind, sizeValue);
         }
 

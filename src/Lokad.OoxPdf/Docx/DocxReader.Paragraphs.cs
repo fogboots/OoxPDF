@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Xml.Linq;
 using Lokad.OoxPdf.Diagnostics;
+using Lokad.OoxPdf.Fonts;
 using Lokad.OoxPdf.Ooxml;
 using static Lokad.OoxPdf.Ooxml.OoxNamespaces;
 
@@ -1568,6 +1569,13 @@ internal sealed partial class DocxReader
             : resolvedRun.FontFamily;
         bool isScriptShiftedRun =
             DocxTextRun.ParseVerticalAlignment(resolvedRun.VerticalAlignmentValue) is not DocxRunVerticalAlignment.Baseline;
+        // RV01: text set in a symbol font carries its Unicode meaning so hosts
+        // without the symbol font still draw and extract it.
+        if (SymbolFontText.IsSymbolFamily(fontFamily))
+        {
+            text = SymbolFontText.ToUnicode(fontFamily, text);
+        }
+
         return new DocxTextRun(
             text,
             resolvedRun.FontSize ?? DocxDefaults.UnstyledRunFontSizePoints,
@@ -1656,6 +1664,13 @@ internal sealed partial class DocxReader
         if (child.Name == WordprocessingNamespace + "tab")
         {
             return "\t";
+        }
+
+        if (child.Name == WordprocessingNamespace + "sym" &&
+            int.TryParse((string?)child.Attribute(WordprocessingNamespace + "char"), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int symbolCode) &&
+            symbolCode is > 0 and <= 0xFFFF)
+        {
+            return SymbolFontText.ToUnicode((string?)child.Attribute(WordprocessingNamespace + "font"), ((char)symbolCode).ToString());
         }
 
         if (child.Name == WordprocessingNamespace + "noBreakHyphen")

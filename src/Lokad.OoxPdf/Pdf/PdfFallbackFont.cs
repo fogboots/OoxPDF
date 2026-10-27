@@ -119,7 +119,8 @@ internal sealed class PdfFallbackFont
             or UnicodeCategory.Format
             or UnicodeCategory.LineSeparator
             or UnicodeCategory.ParagraphSeparator
-            or UnicodeCategory.Surrogate;
+            or UnicodeCategory.Surrogate
+            || codePoint is >= 0xFE00 and <= 0xFE0F;
     }
     private static bool IsWide(int codePoint)
     {
