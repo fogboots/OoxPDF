@@ -168,6 +168,7 @@ internal sealed partial class OpenTypeFont
         bool HasMathTable)
     {
         public string FamilyName => FamilyNames[0];
+        internal Func<int, bool>? HasCodePoint { get; init; }
     }
 
     // discovery parses only the table directory plus the full extents of
@@ -386,7 +387,8 @@ internal sealed partial class OpenTypeFont
         ReadGlyphCount(bytes, tables);
         ReadCmap(bytes, tables);
         ReadAdvances(bytes, tables);
-        return new FontDiscoveryHeaders(familyNames, os2.WeightClass, post.ItalicAngle, tables.ContainsKey("MATH"));
+        return new FontDiscoveryHeaders(familyNames, os2.WeightClass, post.ItalicAngle, tables.ContainsKey("MATH"))
+        { HasCodePoint = TryCreateCoverage(bytes, tables) };
         }
         catch (InvalidDataException)
         {
@@ -396,6 +398,27 @@ internal sealed partial class OpenTypeFont
         {
             throw new InvalidDataException("Font file is malformed: " + ex.Message, ex);
         }
+    }
+
+    private static Func<int, bool>? TryCreateCoverage(byte[] bytes, Dictionary<string, TableRecord> tables)
+    {
+        try
+        {
+            TableRecord table = Required(tables, "cmap");
+            // Keep only the small mapping table, never the full discovery buffer.
+            if (table.Length > 1024 * 1024) return null;
+            byte[] mapping = bytes.AsSpan(table.Offset, table.Length).ToArray();
+            CmapFormat? coverage = ReadCmap(mapping, new Dictionary<string, TableRecord>
+            { ["cmap"] = new TableRecord(0, mapping.Length) });
+            return codePoint =>
+            {
+                try { return (coverage?.Map(codePoint, mapping) ?? 0) != 0; }
+                catch (Exception ex) when (ex is ArgumentException or IndexOutOfRangeException or OverflowException or InvalidDataException)
+                { return true; } // An uncertain map takes the existing full-load path.
+            };
+        }
+        catch (Exception ex) when (ex is ArgumentException or IndexOutOfRangeException or OverflowException or InvalidDataException)
+        { return null; }
     }
 
     private static byte[] ExtractCollectionFont(ReadOnlySpan<byte> bytes, int fontIndex, CancellationToken cancellationToken = default)

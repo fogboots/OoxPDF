@@ -94,14 +94,16 @@ public sealed class WindowsFontResolver : IFontResolver, IFontCatalog
                             // discovery parses only the directory plus eight
                             // table extents, never outlines or layout tables. Read exactly
                             // those bytes instead of the whole program per file.
-                            (byte[] bytes, bool complete, long fileLength) = ReadDiscoveryBytes(path);
+                            bool compactRead = TryReadCompactDiscoveryHeaders(path, out var compactHeaders);
+                            (byte[] bytes, bool complete, long fileLength) = compactRead
+                                ? (Array.Empty<byte>(), true, 0L) : ReadDiscoveryBytes(path);
                             if (!sourcesByPath.TryGetValue(path, out FileFontProgramSource? source))
                             {
                                 source = new FileFontProgramSource(path, retention);
                                 sourcesByPath[path] = source;
                             }
                             bool isCollection = OpenTypeFont.IsTrueTypeCollectionHeader(bytes);
-                            int faceCount = OpenTypeFont.GetCollectionFontCount(bytes);
+                            int faceCount = compactRead ? compactHeaders.Count : OpenTypeFont.GetCollectionFontCount(bytes);
                             for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
                             {
                                 OpenTypeFont.FontDiscoveryHeaders headers;
@@ -109,7 +111,7 @@ public sealed class WindowsFontResolver : IFontResolver, IFontCatalog
                                 {
                                     // Collections parse each face in place instead of
                                     // repackaging per-face sfnt copies (G02).
-                                    headers = isCollection
+                                    headers = compactRead ? compactHeaders[faceIndex] : isCollection
                                         ? OpenTypeFont.ReadCollectionFaceDiscoveryHeaders(bytes, faceIndex, complete ? null : fileLength)
                                         : OpenTypeFont.ReadDiscoveryHeaders(bytes, faceIndex, complete ? null : fileLength);
                                 }
@@ -136,7 +138,7 @@ public sealed class WindowsFontResolver : IFontResolver, IFontCatalog
                                             FaceIndex: faceIndex,
                                             HasMathTable: headers.HasMathTable),
                                         source,
-                                        IsFallback: false);
+                                        IsFallback: false) { HasCodePoint = headers.HasCodePoint };
                                     fonts.Add(face);
                                     foreach (string family in headers.FamilyNames) {
                                         if (!aliases.TryGetValue(family, out List<FontFaceResolution>? familyFaces)) {
@@ -166,6 +168,87 @@ public sealed class WindowsFontResolver : IFontResolver, IFontCatalog
         }
     }
 
+
+    // Metadata tables can sit after hundreds of MiB of outlines in a TTC.
+    // Pack only the eight tables discovery reads, retaining the original bounds
+    // checks for every table. Actual font programs are still loaded on demand.
+    internal static bool TryReadCompactDiscoveryHeaders(string path, out IReadOnlyList<OpenTypeFont.FontDiscoveryHeaders> headers)
+    {
+        headers = Array.Empty<OpenTypeFont.FontDiscoveryHeaders>();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            long fileLength = stream.Length;
+            FileFontProgramSource.CheckLocalFontSize(fileLength, path);
+            byte[] head = new byte[12];
+            ReadExactly(stream, head, 0, head.Length);
+            bool collection = OpenTypeFont.IsTrueTypeCollectionHeader(head);
+            uint count = collection ? OpenTypeFont.U32(head, 8) : 1;
+            if (count == 0 || count > 256) return false;
+            uint[] offsets = new uint[count];
+            if (collection)
+            {
+                byte[] rawOffsets = new byte[count * 4];
+                ReadExactly(stream, rawOffsets, 0, rawOffsets.Length);
+                for (int i = 0; i < count; i++) offsets[i] = OpenTypeFont.U32(rawOffsets, i * 4);
+            }
+            var faces = new List<OpenTypeFont.FontDiscoveryHeaders>();
+            foreach (uint offset in offsets)
+            {
+                if (offset > fileLength - 12) return false;
+                stream.Position = offset;
+                ReadExactly(stream, head, 0, head.Length);
+                int tableCount = OpenTypeFont.U16(head, 4);
+                if (tableCount == 0 || tableCount > 256) return false;
+                int directoryLength = 12 + tableCount * 16;
+                if (offset + (long)directoryLength > fileLength) return false;
+                byte[] directory = new byte[directoryLength];
+                head.CopyTo(directory, 0);
+                ReadExactly(stream, directory, 12, directoryLength - 12);
+                var required = new List<(int Record, uint Offset, int Length)>();
+                long repackedLength = directoryLength;
+                int packedLength = directoryLength;
+                var tags = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < tableCount; i++)
+                {
+                    int record = 12 + i * 16;
+                    string tag = System.Text.Encoding.ASCII.GetString(directory, record, 4);
+                    uint tableOffset = OpenTypeFont.U32(directory, record + 8);
+                    uint length = OpenTypeFont.U32(directory, record + 12);
+                    if (!tags.Add(tag) || (long)tableOffset + length > fileLength) return false;
+                    repackedLength = checked(((repackedLength + 3L) & ~3L) + length);
+                    if (tag is "head" or "hhea" or "maxp" or "name" or "OS/2" or "post" or "cmap" or "hmtx")
+                    {
+                        packedLength = checked(packedLength + (int)length);
+                        // Large or unusual metadata takes the original bounded path.
+                        if (packedLength > 16 * 1024 * 1024) return false;
+                        required.Add((record, tableOffset, (int)length));
+                    }
+                }
+                // Preserve the TTC repack-size validation used by the old reader.
+                if (collection && repackedLength > fileLength + 3L * tableCount + 4L) return false;
+                byte[] packed = new byte[packedLength];
+                directory.CopyTo(packed, 0);
+                int cursor = directoryLength;
+                foreach (var table in required)
+                {
+                    stream.Position = table.Offset;
+                    ReadExactly(stream, packed, cursor, table.Length);
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(packed.AsSpan(table.Record + 8, 4), (uint)cursor);
+                    cursor += table.Length;
+                }
+                // Unused table entries retain their original extents. Metadata
+                // entries now address packed bytes; the parser validates both.
+                faces.Add(OpenTypeFont.ReadDiscoveryHeaders(packed, 0, Math.Max(fileLength, packedLength)));
+            }
+            headers = faces;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or NotSupportedException or ArgumentOutOfRangeException or IndexOutOfRangeException or OverflowException or ArgumentException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 
     private static (byte[] Bytes, bool Complete, long FileLength) ReadDiscoveryBytes(string path)
     {

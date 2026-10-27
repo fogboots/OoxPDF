@@ -60,6 +60,55 @@ internal static class FontFamilyAliasTests
         TestAssert.Equal(2, resolver.GetDiscoveredFonts().Count);
     });
 
+    public static void FontCompactDiscoveryMatchesFullFontAndCollectionCoverage() => InDirectory(directory =>
+    {
+        foreach (var (name, bytes) in new[] {
+            ("single.ttf", TestFontBuilder.CreateFontWithFamilyNames(Names)),
+            ("faces.ttc", TestFontBuilder.CreateCollection("First", "Other Family", Names)) })
+        {
+            string path = Path.Combine(directory, name);
+            File.WriteAllBytes(path, bytes);
+            TestAssert.True(WindowsFontResolver.TryReadCompactDiscoveryHeaders(path, out var compact), "A valid font must use compact discovery.");
+            TestAssert.Equal(OpenTypeFont.GetCollectionFontCount(bytes), compact.Count);
+            for (int face = 0; face < compact.Count; face++)
+            {
+                var original = OpenTypeFont.ReadDiscoveryHeaders(bytes, face);
+                TestAssert.Equal(string.Join("|", original.FamilyNames), string.Join("|", compact[face].FamilyNames));
+                TestAssert.Equal(original.WeightClass, compact[face].WeightClass);
+                var font = OpenTypeFont.Load(bytes, face);
+                foreach (int codePoint in new[] { 0, 32, 65, 0x100, 0x03b1, 0x1f600, 0x10ffff })
+                    TestAssert.Equal(font.MapCodePoint(codePoint) != 0, compact[face].HasCodePoint!(codePoint));
+            }
+        }
+    });
+
+    public static void FontCompactDiscoveryDoesNotAllocateSparseOutlineGaps() => InDirectory(directory =>
+    {
+        byte[] bytes = TestFontBuilder.CreateTestFont();
+        var original = OpenTypeFont.ReadDiscoveryHeaders(bytes, 0);
+        var name = TestFontBuilder.GetTableRange(bytes, "name");
+        byte[] names = bytes.AsSpan(name.Offset, name.Length).ToArray();
+        const int farOffset = 32 * 1024 * 1024;
+        int count = OpenTypeFont.U16(bytes, 4);
+        for (int i = 0; i < count; i++)
+        {
+            int record = 12 + i * 16;
+            if (System.Text.Encoding.ASCII.GetString(bytes, record, 4) == "name")
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(record + 8, 4), farOffset);
+        }
+        string path = Path.Combine(directory, "sparse.ttf");
+        using (var stream = File.Create(path))
+        { stream.Write(bytes); stream.Position = farOffset; stream.Write(names); }
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        TestAssert.True(WindowsFontResolver.TryReadCompactDiscoveryHeaders(path, out var compact), "Sparse tables must stay readable.");
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        TestAssert.True(allocated < 1024 * 1024, "Discovery must not allocate the 32 MiB gap before the name table.");
+        TestAssert.Equal(original.FamilyName, compact[0].FamilyName);
+        // An invalid table extent must not be hidden by repacking.
+        using (var stream = File.OpenWrite(path)) { stream.SetLength(bytes.Length); }
+        TestAssert.True(!WindowsFontResolver.TryReadCompactDiscoveryHeaders(path, out _), "Truncated extents must use the validated fallback path.");
+    });
+
     private static void InDirectory(Action<string> action)
     {
         string directory = Path.Combine(Path.GetTempPath(), "font-alias-" + Guid.NewGuid().ToString("N"));

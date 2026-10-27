@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Lokad.OoxPdf;
 using Lokad.OoxPdf.Diagnostics;
 
@@ -226,7 +226,7 @@ static void WriteDiagnostics(string? diagnosticsPath, IReadOnlyList<OoxPdfDiagno
         using (var stream = new FileStream(stagingPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
             ownsStagingFile = true;
-            JsonSerializer.Serialize(stream, diagnostics, new JsonSerializerOptions { WriteIndented = true });
+            JsonSerializer.Serialize(stream, diagnostics, DiagnosticsJsonContext.Default.IReadOnlyListOoxPdfDiagnostic);
         }
         File.Move(stagingPath, diagnosticsPath, overwrite: true);
     }

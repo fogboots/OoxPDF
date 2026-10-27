@@ -113,6 +113,7 @@ internal static class OoxMarkupCompatibility
                     selected = element.Element(compatibility + "Fallback");
                     if (selected is null) { element.Remove(); return; }
                     PreservePreferredChartGalleryStyle(element, selected);
+                    Lokad.OoxPdf.Pptx.PptxNativeMath.Preserve(element, selected);
                 }
                 unrecognized |= HasUnrecognizedMustUnderstand(selected);
                 VisitChildren(selected);

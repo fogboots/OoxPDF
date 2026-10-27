@@ -7,6 +7,9 @@ public sealed record FontFaceResolution(
     IFontProgramSource Source,
     bool IsFallback)
 {
+    // Optional compact coverage hint from trusted discovery. False means this
+    // font cannot supply a glyph, so fallback need not load its whole program.
+    internal Func<int, bool>? HasCodePoint { get; init; }
     internal string FamilyName => ResolvedFamily;
     internal bool Bold => Style.Bold;
     internal bool Italic => Style.Italic;

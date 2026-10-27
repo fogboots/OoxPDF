@@ -210,6 +210,8 @@ internal sealed partial class PptxRenderer
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (node.Kind == PptxSceneNodeKind.Shape && (renderPlaceholders || !node.IsPlaceholder) &&
+            node.Source.Annotation<PptxNativeMath>() is not null && TryRenderNativeMath(node, context, graphics, chartFonts, transform)) return;
         switch (node.Kind)
         {
             case PptxSceneNodeKind.Shape:

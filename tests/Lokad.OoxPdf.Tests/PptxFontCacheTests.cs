@@ -7,6 +7,22 @@ namespace Lokad.OoxPdf.Tests;
 
 internal static class PptxFontCacheTests
 {
+    public static void PptxFallbackOrderReusesStyleSnapshotWithoutChangingPriority()
+    {
+        FontFaceResolution regular = FontFace("Regular", "regular", TestFontBuilder.CreateTestFont());
+        FontFaceResolution bold = FontFace("Bold", "bold", TestFontBuilder.CreateTestFont()) with
+        { Style = new FontStyleKey(Bold: true, WeightClass: 700) };
+        var resolver = new PresentationFontResolver(new CatalogResolver(bold, regular));
+        var regularOrder = resolver.GetFallbackFonts(false, false);
+        var boldOrder = resolver.GetFallbackFonts(true, false);
+        TestAssert.True(ReferenceEquals(regular, regularOrder[0]), "Regular style must retain its priority.");
+        TestAssert.True(ReferenceEquals(bold, boldOrder[0]), "Bold style must retain its priority.");
+        TestAssert.True(ReferenceEquals(regularOrder, resolver.GetFallbackFonts(false, false)), "Repeated glyph lookups reuse the same bounded ordering.");
+        TestAssert.True(ReferenceEquals(boldOrder, resolver.GetFallbackFonts(true, false)), "Styles have separate cached orderings.");
+        TestAssert.Equal(2, regularOrder.Count);
+        TestAssert.Equal(2, boldOrder.Count);
+    }
+
     public static void PptxEstimatorsSharingResolverReuseLoadedPrograms()
     {
         var program = new MemoryFontProgramSource("cache-test", TestFontBuilder.CreateTestFont());

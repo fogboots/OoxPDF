@@ -12,6 +12,10 @@ namespace Lokad.OoxPdf.Imaging;
 /// </summary>
 internal static class OoxImageDecoder
 {
+    public static bool IsTiffContentType(string contentType) =>
+        contentType.Equals("image/tiff", StringComparison.OrdinalIgnoreCase) ||
+        contentType.Equals("image/x-tiff", StringComparison.OrdinalIgnoreCase);
+
     public static bool IsJpegContentType(string contentType) =>
         contentType.Equals("image/jpeg", StringComparison.OrdinalIgnoreCase) ||
         contentType.Equals("image/jpg", StringComparison.OrdinalIgnoreCase);
@@ -24,7 +28,7 @@ internal static class OoxImageDecoder
         contentType.Equals("image/x-ms-bmp", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsSupportedContentType(string contentType) =>
-        IsJpegContentType(contentType) || IsPngContentType(contentType) || IsBmpContentType(contentType);
+        IsJpegContentType(contentType) || IsPngContentType(contentType) || IsBmpContentType(contentType) || IsTiffContentType(contentType);
 
     public static PdfImageXObject Decode(string contentType, byte[] bytes, Func<byte[], byte[]> recolorRgb, CancellationToken cancellationToken = default)
     {
@@ -42,6 +46,8 @@ internal static class OoxImageDecoder
     public static DecodedPixels DecodePixelsOwned(string contentType, byte[] bytes, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (IsTiffContentType(contentType)) return TiffImage.ReadOwned(bytes, cancellationToken);
+
         if (IsPngContentType(contentType))
         {
             return PngImage.ReadOwned(bytes, cancellationToken);

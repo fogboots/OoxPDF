@@ -3,9 +3,13 @@ using System.Text.Json;
 
 namespace Lokad.OoxPdf.Fonts;
 
-public sealed class OoxPdfFontPackResolver : IFontResolver, IFontCatalog
+public sealed partial class OoxPdfFontPackResolver : IFontResolver, IFontCatalog
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    [System.Text.Json.Serialization.JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+    [System.Text.Json.Serialization.JsonSerializable(typeof(FontPackManifest))]
+    private partial class ManifestJsonContext : System.Text.Json.Serialization.JsonSerializerContext
+    {
+    }
     internal const long MaxManifestBytes = 1024L * 1024L;
     internal const long MaxFontFileBytes = 64L * 1024L * 1024L;
 
@@ -117,7 +121,7 @@ public sealed class OoxPdfFontPackResolver : IFontResolver, IFontCatalog
         {
             try
             {
-                return JsonSerializer.Deserialize<FontPackManifest>(manifestBytes, JsonOptions)
+                return JsonSerializer.Deserialize(manifestBytes, ManifestJsonContext.Default.FontPackManifest)
                     ?? throw new OoxPdfFontPackException(
                         OoxPdfFontPackDiagnosticIds.FontPackInvalid,
                         "The font pack manifest is empty.");

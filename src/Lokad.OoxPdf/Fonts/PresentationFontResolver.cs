@@ -6,6 +6,9 @@ internal sealed class PresentationFontResolver
 {
     private readonly IFontResolver primary;
     private readonly IFontCatalog fontCatalog;
+    // The catalog is a conversion snapshot. There are exactly four style
+    // orderings; cache them once instead of sorting again for each missing glyph.
+    private readonly Dictionary<(bool Bold, bool Italic), FontFaceResolution[]> fallbackOrders = new();
     // IDs are ordinal and scoped to their resolver. A separate discovery catalog
     // must not alias the primary resolver; a primary catalog shares its cache.
     private readonly Dictionary<(bool SeparateCatalog, string StableId, int FaceIndex), OpenTypeFont?> openTypeFonts = new();
@@ -41,6 +44,25 @@ internal sealed class PresentationFontResolver
     public IReadOnlyList<FontFaceResolution> GetDiscoveredFonts()
     {
         return fontCatalog.GetDiscoveredFonts();
+    }
+
+    internal IReadOnlyList<FontFaceResolution> GetFallbackFonts(bool bold, bool italic)
+    {
+        var key = (bold, italic);
+        if (!fallbackOrders.TryGetValue(key, out FontFaceResolution[]? ordered))
+        {
+            ordered = fontCatalog.GetDiscoveredFonts()
+                .Where(f => !f.HasMathTable)
+                .OrderBy(f => f.Bold == bold ? 0 : 1000)
+                .ThenBy(f => f.Italic == italic ? 0 : 1000)
+                .ThenBy(f => Math.Abs(f.WeightClass - (bold ? 700 : 400)))
+                .ThenBy(f => f.FamilyName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(f => f.Source.StableId, StringComparer.Ordinal)
+                .ThenBy(f => f.FontFaceIndex)
+                .ToArray();
+            fallbackOrders.Add(key, ordered);
+        }
+        return ordered;
     }
 
     internal bool IsPrimaryProgram(FontFaceResolution primaryResolution, FontFaceResolution catalogResolution) =>

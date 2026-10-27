@@ -357,14 +357,7 @@ internal sealed partial class PptxRenderer
                 return cached;
             }
 
-            foreach (FontFaceResolution resolution in resolver.GetDiscoveredFonts()
-                         .Where(f => !f.HasMathTable)
-                         .OrderBy(f => f.Bold == bold ? 0 : 1000)
-                         .ThenBy(f => f.Italic == italic ? 0 : 1000)
-                         .ThenBy(f => Math.Abs(f.WeightClass - (bold ? 700 : 400)))
-                         .ThenBy(f => f.FamilyName, StringComparer.OrdinalIgnoreCase)
-                         .ThenBy(f => f.Source.StableId, StringComparer.Ordinal)
-                         .ThenBy(f => f.FontFaceIndex))
+            foreach (FontFaceResolution resolution in resolver.GetFallbackFonts(bold, italic))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (primaryResolution is not null && resolver.IsPrimaryProgram(primaryResolution, resolution))
@@ -372,6 +365,7 @@ internal sealed partial class PptxRenderer
                     continue;
                 }
 
+                if (resolution.HasCodePoint?.Invoke(codePoint) == false) continue;
                 OpenTypeFont? font = LoadFont(resolution, fromCatalog: true);
                 if (font is not null && font.MapCodePoint(codePoint) != 0)
                 {

@@ -128,9 +128,12 @@ internal sealed class PngImage
 
         using var input = new MemoryStream(compressed, 0, compressed.Length, writable: false);
         using var zlib = new System.IO.Compression.ZLibStream(input, System.IO.Compression.CompressionMode.Decompress);
-        PngImage decoded = Decode(zlib, width, height, bitDepth, colorType, interlace, palette, transparency, cancellationToken);
+        // Read filter bytes and scanlines through a bounded buffer. Calling
+        // ZLibStream.ReadByte for every row repeatedly enters the inflater.
+        using var buffered = new BufferedStream(zlib, 32 * 1024);
+        PngImage decoded = Decode(buffered, width, height, bitDepth, colorType, interlace, palette, transparency, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        if (zlib.ReadByte() != -1)
+        if (buffered.ReadByte() != -1)
         {
             throw new InvalidDataException("PNG pixel data exceeds the size implied by its dimensions.");
         }
