@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Office renderer page manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "source",
+    "pages"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "source": {
+      "enum": [
+        "pptx",
+        "docx"
+      ]
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "page",
+          "text",
+          "headings",
+          "objects",
+          "missingFonts",
+          "warnings"
+        ],
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sourceIndex": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "text": {
+            "type": "string"
+          },
+          "headings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "objects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "share",
+                "template",
+                "fallback"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "picture",
+                    "chart",
+                    "smartart",
+                    "equation",
+                    "table",
+                    "shapes",
+                    "ole",
+                    "media"
+                  ]
+                },
+                "share": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "template": {
+                  "type": "boolean"
+                },
+                "fallback": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "missingFonts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

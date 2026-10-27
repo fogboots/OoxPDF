@@ -14,6 +14,7 @@ internal sealed record DocxParagraph(
     DocxParagraphKeepRules KeepRules,
     DocxListLabel? ListLabel)
 {
+    public int? OutlineLevel { get; init; }
     public DocxParagraphIndent Indent { get; init; } = DocxParagraphIndent.Empty;
     public IReadOnlyList<DocxTabStop> TabStops { get; init; } = [];
     public bool? SnapToGrid { get; init; }

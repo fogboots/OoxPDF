@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Lokad.OoxPdf;
 using Lokad.OoxPdf.Diagnostics;
 
@@ -22,6 +22,7 @@ static int Run(string[] args)
     string outputPath = args[2];
     string? diagnosticsPath = null;
     bool strict = false;
+    bool manifestEnabled = true;
     OoxPdfDocxMarkupMode docxMarkupMode = OoxPdfDocxMarkupMode.Final;
     OoxPdfDocxMarkupGeometryMode docxMarkupGeometryMode = OoxPdfDocxMarkupGeometryMode.PreserveDocumentLayout;
     bool docxMarkupSpecified = false;
@@ -30,6 +31,7 @@ static int Run(string[] args)
     for (int i = 3; i < args.Length; i++)
     {
         string arg = args[i];
+        if (arg.Equals("--no-manifest", StringComparison.OrdinalIgnoreCase)) { manifestEnabled = false; continue; }
         if (arg.Equals("--strict", StringComparison.OrdinalIgnoreCase))
         {
             strict = true;
@@ -99,13 +101,21 @@ static int Run(string[] args)
             return 2;
         }
 
+        string manifestPath = Path.ChangeExtension(outputPath, "pages.json");
+        if (PathsConflict(inputPath, manifestPath, readFirst: true) || PathsConflict(outputPath, manifestPath) ||
+            diagnosticsPath is not null && PathsConflict(diagnosticsPath, manifestPath))
+        { Console.Error.WriteLine("Page manifest path conflicts with another conversion path."); return 2; }
+        using var manifestWriter = manifestEnabled ? new PageManifestWriter(manifestPath, inputKind == OoxPdfInputKind.Pptx ? "pptx" : "docx") : null;
         OoxPdfConverter.Convert(inputPath, outputPath, new OoxPdfOptions
         {
             DocxMarkupMode = docxMarkupMode,
             DocxMarkupGeometryMode = docxMarkupGeometryMode,
-            DiagnosticSink = collector.Add
+            DiagnosticSink = collector.Add,
+            PageManifestSink = manifestWriter is null ? null : manifestWriter.Add
         });
 
+        if (manifestWriter is not null) manifestWriter.Publish();
+        else { try { File.Delete(manifestPath); } catch { } }
         try
         {
             WriteDiagnostics(diagnosticsPath, collector.DiagnosticsWithOverflow());
@@ -135,7 +145,7 @@ static int Run(string[] args)
 
 static void PrintUsage()
 {
-    Console.Error.WriteLine("Usage: Lokad.OoxPdf.Cli convert <input.pptx|input.docx> <output.pdf> [--diagnostics <file>] [--strict] [--docx-markup final|original|simple|all] [--docx-markup-geometry preserve|reserve-margin|word-compatible]");
+    Console.Error.WriteLine("Usage: Lokad.OoxPdf.Cli convert <input.pptx|input.docx> <output.pdf> [--diagnostics <file>] [--no-manifest] [--strict] [--docx-markup final|original|simple|all] [--docx-markup-geometry preserve|reserve-margin|word-compatible]");
 }
 
 static bool TryParseDocxMarkupMode(string value, out OoxPdfDocxMarkupMode mode)

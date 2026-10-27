@@ -27,6 +27,9 @@ public sealed class OoxPdfOptions
 
     public Action<OoxPdfDiagnostic>? DiagnosticSink { get; init; }
 
+    /// <summary>Optional streaming per-page metadata. Observer failures never abort PDF conversion.</summary>
+    public Action<OoxPageManifest>? PageManifestSink { get; init; }
+
     /// <summary>
     /// Output-size/page limits and the resident page-content staging window.
     /// Null selects the built-in defaults. Individual archive, XML, image and

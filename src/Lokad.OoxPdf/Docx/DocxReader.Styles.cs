@@ -314,7 +314,8 @@ internal sealed partial class DocxReader
             ReadOnOff(pageBreakBefore),
             (string?)pageBreakBefore?.Attribute(WordprocessingNamespace + "val"),
             ReadOnOff(wordWrap),
-            (string?)wordWrap?.Attribute(WordprocessingNamespace + "val"));
+            (string?)wordWrap?.Attribute(WordprocessingNamespace + "val"))
+        { OutlineLevel = int.TryParse((string?)properties?.Element(WordprocessingNamespace + "outlineLvl")?.Attribute(WordprocessingNamespace + "val"), out int level) ? level : null };
     }
 
     private static IReadOnlyList<DocxTabStop> ReadParagraphTabStops(XElement? properties)
@@ -618,6 +619,7 @@ internal sealed partial class DocxReader
         bool? WordWrap,
         string? WordWrapValue)
     {
+        public int? OutlineLevel { get; init; }
         public static DocxResolvedParagraphProperties Empty { get; } = new(null, null, null, null, null, null, DocxParagraphSpacing.Empty, DocxParagraphKeepRules.Empty, DocxParagraphIndent.Empty, [], null, null, null, null, null, null);
 
         public DocxResolvedParagraphProperties Merge(DocxResolvedParagraphProperties other)
@@ -643,7 +645,7 @@ internal sealed partial class DocxReader
                 other.PageBreakBefore ?? PageBreakBefore,
                 other.PageBreakBeforeValue ?? PageBreakBeforeValue,
                 other.WordWrap ?? WordWrap,
-                other.WordWrapValue ?? WordWrapValue);
+                other.WordWrapValue ?? WordWrapValue) { OutlineLevel = other.OutlineLevel ?? OutlineLevel };
         }
     }
 }

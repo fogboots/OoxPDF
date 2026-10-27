@@ -53,6 +53,8 @@ internal readonly record struct PdfPage
         ShadingPatterns = shadingPatterns ?? [];
     }
 
+    public OoxPageManifest? Manifest { get; init; }
+
     public double Width { get; }
 
     public double Height { get; }
@@ -88,6 +90,8 @@ internal readonly record struct PdfLinkAnnotation
     public double X { get; }
 
     public double Y { get; }
+
+    public OoxPageManifest? Manifest { get; init; }
 
     public double Width { get; }
 

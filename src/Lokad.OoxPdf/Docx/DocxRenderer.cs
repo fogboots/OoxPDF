@@ -41,6 +41,7 @@ internal sealed record DocxMarkupBalloonPlacementSnapshot(
 
 internal sealed partial class DocxRenderer
 {
+    private readonly bool manifest;
     internal const string DefaultDocumentTypefaceRequest = DocxFontFallbackRules.DefaultDocumentTypefaceRequest;
 
     private const double WordCompatibleAllMarkupMaxBodyTextFontSizePoints = 11.625d;
@@ -128,9 +129,10 @@ internal sealed partial class DocxRenderer
     public DocxRenderer(
         IFontResolver? fontResolver,
         OoxPdfDocxMarkupMode markupMode,
-        OoxPdfDocxMarkupGeometryMode markupGeometryMode)
+        OoxPdfDocxMarkupGeometryMode markupGeometryMode, bool manifest = false)
     {
         this.fontResolver = fontResolver ?? new WindowsFontResolver();
+        this.manifest = manifest;
         markupContext = DocxMarkupContext.FromMode(markupMode, markupGeometryMode);
     }
 
@@ -148,7 +150,7 @@ internal sealed partial class DocxRenderer
             yield break;
         }
 
-        foreach (PdfPage page in RenderParagraphs(document, fontResolver, ResolveEffectiveMarkupContext(document, cancellationToken), diagnosticSink, cancellationToken))
+        foreach (PdfPage page in RenderParagraphs(document, fontResolver, ResolveEffectiveMarkupContext(document, cancellationToken), diagnosticSink, cancellationToken, manifest))
         {
             yield return page;
         }
@@ -1101,7 +1103,7 @@ internal sealed partial class DocxRenderer
         IFontResolver fontResolver,
         DocxMarkupContext markupContext,
         Action<OoxPdfDiagnostic>? diagnosticSink,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool manifest = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var prepared = PreparePageNumberedLayout(document, fontResolver, markupContext, ResolveEffectiveMarkupGeometryMode(markupContext), diagnosticSink, cancellationToken);
@@ -1158,7 +1160,7 @@ internal sealed partial class DocxRenderer
             DocxLayoutPage layoutPage = layout.Pages[pageIndex];
             markupContext = WithPageTextEmissionXOffset(markupContext, layoutPage);
             textEmissionXOffset = ResolveTextEmissionXOffset(markupContext);
-            var graphics = new PdfGraphicsBuilder();
+            var graphics = new PdfGraphicsBuilder { CaptureManifestText = manifest };
             var pageImages = new List<PdfImageResource>();
             int pageNumber = pageIndex + 1;
             RenderWordCompatibleMarkupLaneBackground(layoutPage, graphics, markupContext);
@@ -1258,7 +1260,7 @@ internal sealed partial class DocxRenderer
             // content budget rejects before the writer encodes or stores the page.
             // DOCX layout itself stays whole-document; repagination control is a named residual.
             OoxConversionBudget.Current?.ChargePdfContentBytes(content.Length);
-            yield return new PdfPage(
+            var emittedPage = new PdfPage(
                 layoutPage.Width,
                 layoutPage.Height,
                 content,
@@ -1271,6 +1273,8 @@ internal sealed partial class DocxRenderer
                 fontResources.FallbackFontResources,
                 graphics.Groups,
                 graphics.ShadingPatterns);
+            if (manifest) emittedPage = emittedPage with { Manifest = PageManifestBuilder.Docx(emittedPage, graphics, layoutPage, pageNumber, fontResolver) };
+            yield return emittedPage;
         }
 
         IReadOnlyDictionary<string, PdfLinkDestination> CreateBookmarkDestinations()
