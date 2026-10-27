@@ -2,6 +2,10 @@
 
 ## 0.2.0-preview — candidate prepared, not published
 
+- Renders PPTX SmartArt from the diagram's saved drawing part through the ordinary
+  shape and text pipeline, including text rectangles and hue/saturation color
+  offsets. `PPTX_UNSUPPORTED_SMARTART` now means no readable drawing exists; the
+  diagram's node text is then kept in the PDF text layer.
 - Evaluates PPTX slide-number fields from the authored sequence and numbering
   origin, preserving hidden-slide gaps independently of output-page indexes.
 - Uses paragraph reference identity for DOCX review balloons and textbox comment

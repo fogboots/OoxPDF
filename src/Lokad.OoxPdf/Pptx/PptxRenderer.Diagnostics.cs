@@ -582,7 +582,9 @@ internal sealed partial class PptxRenderer
     {
         foreach (PptxSceneNode node in nodes)
         {
-            if (node.IsSmartArtGraphicFrame || HasSmartArtGraphicFrame(node.Children))
+            // A diagram rendered from its saved drawing is a group; only diagrams
+            // that fell back to bare frames or hidden text still lack their visuals.
+            if ((node.IsSmartArtGraphicFrame && node.Kind != PptxSceneNodeKind.Group) || HasSmartArtGraphicFrame(node.Children))
             {
                 return true;
             }

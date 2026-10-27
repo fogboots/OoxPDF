@@ -31,6 +31,13 @@ internal static class PageManifestBuilder
             foreach (var node in nodes)
             {
                 if (template && node.IsPlaceholder) continue;
+                // A diagram drawn from its saved drawing is one semantic object, not its pieces.
+                if (node.IsSmartArtGraphicFrame && node.Kind is PptxSceneNodeKind.Group or PptxSceneNodeKind.Shape && node.Bounds is { } frame)
+                {
+                    objects.Add(new("smartart", Share((ox+frame.XEmu*sx)/12700d, (oy+frame.YEmu*sy)/12700d,
+                        frame.WidthEmu*sx/12700d, frame.HeightEmu*sy/12700d, pdf.Width, pdf.Height), template, approximate || node.Kind == PptxSceneNodeKind.Shape));
+                    continue;
+                }
                 if (node.Kind == PptxSceneNodeKind.Group)
                 {
                     var g = node.GroupTransform;

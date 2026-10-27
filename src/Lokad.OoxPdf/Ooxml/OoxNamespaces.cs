@@ -13,6 +13,7 @@ internal static class OoxNamespaces
     public static readonly XNamespace PresentationNamespace = "http://schemas.openxmlformats.org/presentationml/2006/main";
     public static readonly XNamespace ChartNamespace = "http://schemas.openxmlformats.org/drawingml/2006/chart";
     public static readonly XNamespace DiagramNamespace = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
+    public static readonly XNamespace DiagramDrawingNamespace = "http://schemas.microsoft.com/office/drawing/2008/diagram";
     public static readonly XNamespace WordprocessingNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
     public static readonly XNamespace WordprocessingDrawingNamespace = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
     public static readonly XNamespace MathNamespace = "http://schemas.openxmlformats.org/officeDocument/2006/math";

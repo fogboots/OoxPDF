@@ -160,6 +160,14 @@ internal static class PptxColorResolver
             double value = OoxXml.ReadOptionalLong(transform, "val", 100000) / 100000d;
             switch (transform.Name.LocalName)
             {
+                // SmartArt "colorful" schemes step a base accent by hue/saturation offsets
+                // (60000ths of a degree, 100000ths of full saturation).
+                case "hueOff":
+                    (red, green, blue) = ShiftHueSaturation(red, green, blue, OoxXml.ReadOptionalLong(transform, "val", 0) / 60000d, 0d);
+                    break;
+                case "satOff":
+                    (red, green, blue) = ShiftHueSaturation(red, green, blue, 0d, OoxXml.ReadOptionalLong(transform, "val", 0) / 100000d);
+                    break;
                 case "lumMod":
                 case "shade":
                     red *= value;
@@ -180,6 +188,47 @@ internal static class PptxColorResolver
         }
 
         return new RgbColor(ToTransformByte(red), ToTransformByte(green), ToTransformByte(blue));
+    }
+
+    private static (double Red, double Green, double Blue) ShiftHueSaturation(double red, double green, double blue, double hueDegrees, double saturationOffset)
+    {
+        if (hueDegrees == 0d && saturationOffset == 0d)
+        {
+            return (red, green, blue);
+        }
+
+        double r = red / 255d;
+        double g = green / 255d;
+        double b = blue / 255d;
+        double max = Math.Max(r, Math.Max(g, b));
+        double min = Math.Min(r, Math.Min(g, b));
+        double luminosity = (max + min) / 2d;
+        double delta = max - min;
+        double hue = 0d;
+        double saturation = 0d;
+        if (delta > 0d)
+        {
+            saturation = luminosity <= 0.5d ? delta / (max + min) : delta / (2d - max - min);
+            hue = max == r ? (g - b) / delta % 6d : max == g ? (b - r) / delta + 2d : (r - g) / delta + 4d;
+            hue *= 60d;
+        }
+
+        hue = ((hue + hueDegrees) % 360d + 360d) % 360d;
+        saturation = Math.Clamp(saturation + saturationOffset, 0d, 1d);
+        double chroma = (1d - Math.Abs(2d * luminosity - 1d)) * saturation;
+        double segment = hue / 60d;
+        double second = chroma * (1d - Math.Abs(segment % 2d - 1d));
+        (double r1, double g1, double b1) = segment switch
+        {
+            < 1d => (chroma, second, 0d),
+            < 2d => (second, chroma, 0d),
+            < 3d => (0d, chroma, second),
+            < 4d => (0d, second, chroma),
+            < 5d => (second, 0d, chroma),
+            _ => (chroma, 0d, second)
+        };
+        double match = luminosity - chroma / 2d;
+        return ((r1 + match) * 255d, (g1 + match) * 255d, (b1 + match) * 255d);
     }
 
     private static byte ReadPercentageByte(XElement element, string attributeName)
