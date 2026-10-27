@@ -19,7 +19,7 @@ Unsupported feature warnings:
 - `PPTX_UNSUPPORTED_AUDIO`: audio content was detected and ignored.
 - `PPTX_UNSUPPORTED_CHART`: an unsupported chart kind was detected, a chart part was missing/unresolvable, or a supported chart referenced formula-only data without cached numeric values (see also `PPTX_CHART_MISSING_CACHED_DATA`). Native rendering covers bar/column, line, area, pie/doughnut, scatter, bubble, and radar charts with cached values.
 - `PPTX_UNSUPPORTED_OLE_OBJECT`: embedded OLE content was detected and ignored.
-- `PPTX_UNSUPPORTED_SMARTART`: SmartArt or DrawingML diagram content was detected and ignored.
+- `PPTX_UNSUPPORTED_SMARTART`: a SmartArt diagram has no readable saved drawing part, so its shapes were not painted. Diagrams with a drawing render natively without this diagnostic. When the data model has node text, that text is kept in the PDF text layer, invisibly.
 - `PPTX_UNSUPPORTED_TRANSITION`: slide transition content was detected and ignored.
 - `PPTX_UNSUPPORTED_VIDEO`: video content was detected and ignored.
 - `PPTX_CHART_MISSING_CACHED_DATA`: a supported chart referenced formula-only data without chart-side cached numeric values; workbook provenance is preserved but not used for layout.

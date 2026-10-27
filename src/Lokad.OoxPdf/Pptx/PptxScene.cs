@@ -422,21 +422,41 @@ internal sealed partial class PptxSceneBuilder
                 continue;
             }
 
+            // A SmartArt frame with a saved drawing becomes a group of that drawing's
+            // shapes; one without keeps only its (invisible) data text as a shape. Both
+            // stay flagged so the unrendered case still reports the diagnostic.
+            IReadOnlyDictionary<string, OoxRelationship> sourceRelationships = relationships;
+            bool isSmartArt = kind == PptxSceneNodeKind.UnknownGraphicFrame && IsSmartArtGraphicFrame(child);
+            if (isSmartArt)
+            {
+                if (TryReadSmartArtDrawing(child, package, relationships, cancellationToken, out XElement drawingGroup, out IReadOnlyDictionary<string, OoxRelationship> drawingRelationships))
+                {
+                    source = drawingGroup;
+                    sourceRelationships = drawingRelationships;
+                    kind = PptxSceneNodeKind.Group;
+                }
+                else if (TryReadSmartArtText(child, package, relationships, cancellationToken, out XElement textShape))
+                {
+                    source = textShape;
+                    kind = PptxSceneNodeKind.Shape;
+                }
+            }
+
             nodes.Add(PptxSceneNode.Create(
                 kind,
                 ReadNonVisualId(nonVisualProperties),
                 ReadNonVisualName(nonVisualProperties),
-                IsPlaceholder(child),
-                kind == PptxSceneNodeKind.UnknownGraphicFrame && IsSmartArtGraphicFrame(child),
+                IsPlaceholder(source),
+                isSmartArt,
                 ReadHyperlinkClick(nonVisualProperties),
-                ReadBounds(child) ?? ReadInheritedPlaceholderBounds(child, placeholderSources),
-                kind is PptxSceneNodeKind.Shape or PptxSceneNodeKind.Connector ? ReadShape(child, theme, colorMap, package, relationships) : null,
-                ReadTextBody(child, placeholderSources),
-                kind == PptxSceneNodeKind.Picture ? ReadPicture(source, theme, colorMap, package, relationships) : null,
-                kind == PptxSceneNodeKind.Table ? ReadTable(child, theme, colorMap) : null,
-                kind == PptxSceneNodeKind.Chart ? ReadChart(child, package, theme, colorMap, relationships, cancellationToken) : null,
-                kind == PptxSceneNodeKind.Group ? ReadGroupTransform(child) : PptxSceneGroupTransform.Identity,
-                kind == PptxSceneNodeKind.Group ? ReadChildNodes(child, placeholderSources, theme, colorMap, package, relationships, cancellationToken) : [],
+                ReadBounds(source) ?? ReadInheritedPlaceholderBounds(source, placeholderSources),
+                kind is PptxSceneNodeKind.Shape or PptxSceneNodeKind.Connector ? ReadShape(source, theme, colorMap, package, sourceRelationships) : null,
+                ReadTextBody(source, placeholderSources),
+                kind == PptxSceneNodeKind.Picture ? ReadPicture(source, theme, colorMap, package, sourceRelationships) : null,
+                kind == PptxSceneNodeKind.Table ? ReadTable(source, theme, colorMap) : null,
+                kind == PptxSceneNodeKind.Chart ? ReadChart(source, package, theme, colorMap, sourceRelationships, cancellationToken) : null,
+                kind == PptxSceneNodeKind.Group ? ReadGroupTransform(source) : PptxSceneGroupTransform.Identity,
+                kind == PptxSceneNodeKind.Group ? ReadChildNodes(source, placeholderSources, theme, colorMap, package, sourceRelationships, cancellationToken) : [],
                 source));
         }
 

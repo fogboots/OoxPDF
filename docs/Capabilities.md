@@ -86,7 +86,7 @@ Approximate or restricted:
   clipping fallbacks. Complex effects and typography may be simplified or omitted
   with diagnostics.
 
-Unsupported: stock/surface/3D charts, SmartArt, live OLE, macros/ActiveX,
+Unsupported: stock/surface/3D charts, SmartArt without a saved drawing part, live OLE, macros/ActiveX,
 audio/video, animation/transitions, unrestricted custom effects, bidirectional
 layout and general OpenType shaping. Static fallback diagnostics are listed below.
 
@@ -190,7 +190,7 @@ Each row links an unsupported family to its detection diagnostic, fallback, and 
 | Family | Detection | Fallback | Covering tests |
 |---|---|---|---|
 | PPTX stock, surface, and 3D charts | `PPTX_UNSUPPORTED_CHART` Warning | Ignored | `PptxStockChartKindWarnsUnsupportedChart` (pptx-model) |
-| PPTX SmartArt | `PPTX_UNSUPPORTED_SMARTART` Warning | Ignored | `PptxUnsupportedFeaturesEmitDiagnostics` (pptx-core) |
+| PPTX SmartArt without a saved drawing part | `PPTX_UNSUPPORTED_SMARTART` Warning | Ignored (node text kept invisibly) | `PptxUnsupportedFeaturesEmitDiagnostics` (pptx-core) |
 | PPTX OLE objects | `PPTX_UNSUPPORTED_OLE_OBJECT` Warning | Ignored | `PptxUnsupportedFeaturesEmitDiagnostics` (pptx-core) |
 | PPTX audio, video, animation, transitions | matching `PPTX_UNSUPPORTED_*` Warning | Ignored | `PptxUnsupportedFeaturesEmitDiagnostics` (pptx-core) |
 | PPTX missing image parts | `IMAGE_MISSING_PART` Error | Ignored, conversion continues | `PptxMissingImagePartDiagnosesErrorAndContinues` (pptx-images) |
