@@ -132,8 +132,7 @@ internal sealed partial class PptxSceneBuilder
                             new XElement(
                                 DrawingNamespace + "rPr",
                                 new XAttribute("sz", HiddenDiagramFontSize),
-                                HiddenDiagramFill("ln"),
-                                HiddenDiagramFill("solidFill")),
+                                HiddenDiagramFill()),
                             new XElement(DrawingNamespace + "t", text))));
                 }
             }
@@ -174,15 +173,13 @@ internal sealed partial class PptxSceneBuilder
         return true;
     }
 
-    // Zero-alpha fill and outline: with an outline the text renderer keeps real glyph
-    // text (stroke mode) instead of painting transparent glyph outlines, so the text
-    // layer survives while nothing is visible.
-    private static XElement HiddenDiagramFill(string name)
+    // Zero-alpha text paints nothing; translucent text still emits an invisible text
+    // layer, so extraction sees it.
+    private static XElement HiddenDiagramFill()
     {
-        XElement fill = new(
+        return new XElement(
             DrawingNamespace + "solidFill",
             new XElement(DrawingNamespace + "srgbClr", new XAttribute("val", "000000"), new XElement(DrawingNamespace + "alpha", new XAttribute("val", 0))));
-        return name == "ln" ? new XElement(DrawingNamespace + "ln", fill) : fill;
     }
 
     private static bool TryReadFrameTransform(XElement graphicFrame, out XElement offset, out XElement extents)
