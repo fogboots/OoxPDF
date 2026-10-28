@@ -112,8 +112,9 @@ internal sealed partial class EmfScene
             }
 
             string family = MetafileCharacters.DrawingFamily(font.FaceName);
-            bool bold = font.Weight >= 600, italic = font.Italic;
+            bool bold = font.Weight >= 600, italic = font.Italic, vertical = MetafileCharacters.IsVertical(font.FaceName);
             var glyphs = new (EmfGlyphFont Source, ushort GlyphId)?[codePoints.Length];
+            var upright = new bool[codePoints.Length];
             for (int i = 0; i < codePoints.Length; i++)
             {
                 int codePoint = codePoints[i];
@@ -129,7 +130,15 @@ internal sealed partial class EmfScene
                     throw new NotSupportedException($"The font drawing U+{codePoint:X4} of metafile font '{font.FaceName}' has no TrueType outlines.");
                 }
 
-                glyphs[i] = (source, source.Font.MapCodePoint(codePoint));
+                ushort glyphId = source.Font.MapCodePoint(codePoint);
+                if (vertical && MetafileCharacters.IsUprightInVertical(codePoint, out bool needsAlternate))
+                {
+                    ushort alternate = source.Font.VerticalAlternate(glyphId);
+                    upright[i] = !needsAlternate || alternate != glyphId;
+                    glyphId = alternate;
+                }
+
+                glyphs[i] = (source, glyphId);
             }
 
             OpenTypeFont metrics = (Lookup(family, bold, italic, 'x') ?? glyphs.FirstOrDefault(glyph => glyph is not null)?.Source ??
@@ -238,7 +247,21 @@ internal sealed partial class EmfScene
                     double scale = em / glyph.Source.Font.UnitsPerEm;
                     double shear = glyph.Source.SyntheticItalic ? PdfGraphicsBuilder.SyntheticItalicShear : 0d;
                     double start = pen;
-                    AppendGlyph(segments, outline, (gx, gy) => Map(start + (gx + gy * shear) * scale * stretch, gy * scale));
+                    if (upright[i])
+                    {
+                        // A quarter turn counterclockwise about the centre of the glyph's cell,
+                        // so that the glyph stands upright once the line runs downwards.
+                        double centreX = steps[i] / 2d, centreY = (ascent - descent) / 2d;
+                        AppendGlyph(segments, outline, (gx, gy) =>
+                        {
+                            double along = (gx + gy * shear) * scale * stretch - centreX, up = gy * scale - centreY;
+                            return Map(start + centreX - up, centreY + along);
+                        });
+                    }
+                    else
+                    {
+                        AppendGlyph(segments, outline, (gx, gy) => Map(start + (gx + gy * shear) * scale * stretch, gy * scale));
+                    }
                     syntheticBold |= glyph.Source.SyntheticBold;
                 }
 

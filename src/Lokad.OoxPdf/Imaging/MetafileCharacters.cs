@@ -63,11 +63,33 @@ internal static class MetafileCharacters
         0x00B0, 0x00B1, 0x00B2, 0x00B3, 0x0384, 0x00B5, 0x00B6, 0x00B7, 0x0388, 0x0389, 0x038A, 0x00BB, 0x038C, 0x00BD, 0x038E, 0x038F
     ];
 
-    private enum Encoding { Symbol, MtExtra, Windows1252, Windows1253 }
+    private enum Encoding { Symbol, MtExtra, Windows1252, Windows1253, CodePage }
+
+    // A face named with a leading '@' is the vertical variant of the named font: GDI
+    // turns its East Asian characters a quarter turn so that they stand upright when
+    // the text runs top to bottom, and draws every other character as the plain face.
+    public static bool IsVertical(string faceName) => faceName.StartsWith('@');
+
+    // Characters that stand upright in vertical text (Unicode UAX #50 orientation U and
+    // Tu: Han, kana, Hangul, Yi, compatibility and full-width forms, CJK punctuation).
+    // Brackets, dashes and similar (orientation Tr) are upright only through the font's
+    // vertical alternate glyph and otherwise stay turned with the line.
+    public static bool IsUprightInVertical(int codePoint, out bool needsAlternate)
+    {
+        needsAlternate = codePoint is >= 0x3008 and <= 0x3011 or >= 0x3014 and <= 0x301F or 0x3030 or 0x30A0 or 0x30FC or
+            0xFE59 or 0xFE5A or 0xFE5B or 0xFE5C or 0xFE5D or 0xFE5E or
+            0xFF08 or 0xFF09 or 0xFF0D or 0xFF1C or 0xFF1D or 0xFF1E or 0xFF3B or 0xFF3D or 0xFF3F or
+            0xFF5B or 0xFF5C or 0xFF5D or 0xFF5E or 0xFF5F or 0xFF60 or 0xFFE3;
+        return codePoint is >= 0x1100 and <= 0x11FF or >= 0x2E80 and <= 0x2FFF or >= 0x3000 and <= 0x4DBF or
+            >= 0x4E00 and <= 0xA4CF or >= 0xA960 and <= 0xA97F or >= 0xAC00 and <= 0xD7FF or
+            >= 0xF900 and <= 0xFAFF or >= 0xFE10 and <= 0xFE1F or >= 0xFE30 and <= 0xFE6F or
+            >= 0xFF00 and <= 0xFF60 or >= 0xFFE0 and <= 0xFFE7 or >= 0x20000 and <= 0x3FFFD;
+    }
 
     // The family that draws the mapped characters of a metafile font.
     public static string DrawingFamily(string faceName)
     {
+        faceName = faceName.TrimStart('@');
         return Classify(faceName, charset: 0) switch
         {
             Encoding.Symbol or Encoding.MtExtra => "Times New Roman",
@@ -79,6 +101,11 @@ internal static class MetafileCharacters
     public static int[] Decode(string faceName, int charset, ReadOnlySpan<byte> text)
     {
         Encoding encoding = Classify(faceName, charset);
+        if (encoding == Encoding.CodePage)
+        {
+            return DecodeCodePage(faceName, charset, text);
+        }
+
         var codePoints = new int[text.Length];
         for (int i = 0; i < text.Length; i++)
         {
@@ -90,10 +117,11 @@ internal static class MetafileCharacters
 
     // UTF-16 text (EMR_EXTTEXTOUTW). Symbol fonts address their glyphs either directly
     // or through the U+F020-U+F0FF private-use range. A surrogate pair yields one code
-    // point and -1 for its low half, which keeps the character advances aligned.
+    // point and -1 for its low half, which keeps the character advances aligned. The
+    // character set does not apply to Unicode text.
     public static int[] Decode(string faceName, int charset, ReadOnlySpan<char> text)
     {
-        Encoding encoding = Classify(faceName, charset);
+        Encoding encoding = Classify(faceName, charset: 0);
         var codePoints = new int[text.Length];
         for (int i = 0; i < text.Length; i++)
         {
@@ -124,11 +152,7 @@ internal static class MetafileCharacters
 
     private static Encoding Classify(string faceName, int charset)
     {
-        if (faceName.StartsWith('@'))
-        {
-            throw new NotSupportedException($"Metafile font '{faceName}' draws vertical text.");
-        }
-
+        faceName = faceName.TrimStart('@');
         if (faceName.Equals("Symbol", StringComparison.OrdinalIgnoreCase))
         {
             return Encoding.Symbol;
@@ -143,9 +167,68 @@ internal static class MetafileCharacters
         {
             0 or 1 => Encoding.Windows1252,
             161 => Encoding.Windows1253,
+            _ when CodePageOf(charset) != 0 => Encoding.CodePage,
             _ => throw new NotSupportedException($"Metafile font '{faceName}' uses character set {charset}.")
         };
     }
+
+    // The Windows code page of a GDI character set, or 0.
+    private static int CodePageOf(int charset) => charset switch
+    {
+        77 => 10000, 128 => 932, 129 => 949, 130 => 1361, 134 => 936, 136 => 950, 162 => 1254, 163 => 1258,
+        177 => 1255, 178 => 1256, 186 => 1257, 204 => 1251, 222 => 874, 238 => 1250, 255 => 437, _ => 0
+    };
+
+    // Eight-bit text in a Windows code page. A double-byte character yields its code
+    // point at the lead byte and -1 at the trail byte, which keeps the advances aligned.
+    private static int[] DecodeCodePage(string faceName, int charset, ReadOnlySpan<byte> text)
+    {
+        int codePage = CodePageOf(charset);
+        System.Text.Encoding encoding = System.Text.CodePagesEncodingProvider.Instance.GetEncoding(codePage,
+            System.Text.EncoderFallback.ExceptionFallback, System.Text.DecoderFallback.ExceptionFallback) ??
+            throw new NotSupportedException($"Metafile font '{faceName}' uses unavailable code page {codePage}.");
+        var codePoints = new int[text.Length];
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] < 0x20)
+            {
+                codePoints[i] = text[i];
+                continue;
+            }
+
+            int length = i + 1 < text.Length && IsLeadByte(codePage, text[i]) ? 2 : 1;
+            string decoded;
+            try
+            {
+                decoded = encoding.GetString(text.Slice(i, length));
+            }
+            catch (System.Text.DecoderFallbackException)
+            {
+                throw new NotSupportedException($"Character 0x{text[i]:X2} of metafile font '{faceName}' has no Unicode equivalent.");
+            }
+
+            if (decoded.Length == 0 || decoded.Length > 2)
+            {
+                throw new NotSupportedException($"Character 0x{text[i]:X2} of metafile font '{faceName}' has no Unicode equivalent.");
+            }
+
+            codePoints[i] = char.ConvertToUtf32(decoded, 0);
+            if (length == 2)
+            {
+                codePoints[++i] = -1;
+            }
+        }
+
+        return codePoints;
+    }
+
+    private static bool IsLeadByte(int codePage, byte value) => codePage switch
+    {
+        932 => value is >= 0x81 and <= 0x9F or >= 0xE0 and <= 0xFC,
+        936 or 949 or 950 => value is >= 0x81 and <= 0xFE,
+        1361 => value is >= 0x84 and <= 0xD3 or >= 0xD8 and <= 0xDE or >= 0xE0 and <= 0xF9,
+        _ => false
+    };
 
     private static int Map(Encoding encoding, string faceName, int code)
     {
