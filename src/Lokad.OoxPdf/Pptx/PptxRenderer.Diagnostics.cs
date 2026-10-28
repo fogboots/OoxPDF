@@ -539,11 +539,6 @@ internal sealed partial class PptxRenderer
             parentName == DrawingNamespace + "txBody";
     }
 
-    private static bool IsUnsupportedPatternFill(XElement patternFill)
-    {
-        return !IsSupportedDiagonalPatternFill((string?)patternFill.Attribute("prst"));
-    }
-
     private static bool HasUnsupportedShapePatternFill(IEnumerable<PptxSceneNode> nodes)
     {
         foreach (PptxSceneNode node in nodes)
@@ -559,8 +554,7 @@ internal sealed partial class PptxRenderer
 
     private static bool IsUnsupportedNonShapePatternFill(XElement patternFill)
     {
-        return patternFill.Parent?.Name != PresentationNamespace + "spPr" &&
-            IsUnsupportedPatternFill(patternFill);
+        return patternFill.Parent?.Name != PresentationNamespace + "spPr";
     }
 
     private static bool IsUnsupportedGraphicFrame(XElement graphicFrame)

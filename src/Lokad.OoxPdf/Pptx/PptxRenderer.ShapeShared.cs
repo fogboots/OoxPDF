@@ -68,6 +68,16 @@ internal sealed partial class PptxRenderer
 
         graphics.SaveState();
         ClipToPresetShape(graphics, shapeProperties, preset, x, y, width, height, presetAdjustmentsOverride);
+        if (!IsSupportedDiagonalPatternFill(fill.Preset) && OfficePatternBitmaps.TryGet(fill.Preset, out byte[] bitmapRows))
+        {
+            graphics.FillRectangleWithTilingPattern(x, y, width, height, PdfTilingPattern.OfficeBitmapPreset(
+                bitmapRows,
+                fill.Foreground.Red, fill.Foreground.Green, fill.Foreground.Blue,
+                fill.Background.Red, fill.Background.Green, fill.Background.Blue));
+            graphics.RestoreState();
+            return;
+        }
+
         graphics.SetStrokeRgb(fill.Foreground.Red, fill.Foreground.Green, fill.Foreground.Blue);
         graphics.SetLineWidth(IsDarkDiagonalPatternFill(fill.Preset) ? 1.0d : 0.5d);
         double spacing = IsDarkDiagonalPatternFill(fill.Preset) ? 4d : 5d;

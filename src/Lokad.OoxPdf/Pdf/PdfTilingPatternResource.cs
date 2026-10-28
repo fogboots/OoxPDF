@@ -196,6 +196,47 @@ internal sealed class PdfTilingPattern
             [new PdfImageResource(imageName, image)]);
     }
 
+    // A preset pattern fill tile: the 8x8 bitmap (one byte per row, high bit leftmost)
+    // doubled to the 16x16 image and 0.375 matrix scale Office emits, so one bitmap
+    // pixel covers 0.75pt.
+    public static PdfTilingPattern OfficeBitmapPreset(
+        IReadOnlyList<byte> bitmapRows,
+        byte foregroundRed,
+        byte foregroundGreen,
+        byte foregroundBlue,
+        byte backgroundRed,
+        byte backgroundGreen,
+        byte backgroundBlue)
+    {
+        const int cellSize = 16;
+        const double matrixScale = 0.375d;
+        const string imageName = "ImPattern";
+
+        byte[] rgb = new byte[cellSize * cellSize * 3];
+        for (int y = 0; y < cellSize; y++)
+        {
+            for (int x = 0; x < cellSize; x++)
+            {
+                bool foreground = (bitmapRows[y / 2] & (0x80 >> (x / 2))) != 0;
+                int index = (y * cellSize + x) * 3;
+                rgb[index] = foreground ? foregroundRed : backgroundRed;
+                rgb[index + 1] = foreground ? foregroundGreen : backgroundGreen;
+                rgb[index + 2] = foreground ? foregroundBlue : backgroundBlue;
+            }
+        }
+
+        var image = PdfImageXObject.RgbPng(cellSize, cellSize, rgb, alpha: null);
+        return new PdfTilingPattern(
+            cellSize,
+            cellSize,
+            cellSize,
+            cellSize,
+            new PdfPatternMatrix(matrixScale, 0d, 0d, matrixScale, 0d, 0d),
+            tilingType: 2,
+            "q 16 0 0 16 0 0 cm /" + imageName + " Do Q\n",
+            [new PdfImageResource(imageName, image)]);
+    }
+
     private string BuildResourceKey()
     {
         string imageKeys = string.Join("|", Images.Select(image => $"{image.ResourceName}:{image.Image.ResourceKey}"));
