@@ -1041,8 +1041,8 @@ internal sealed partial class EmfScene
         }
 
         // EMR_GRADIENTFILL: vertices (x, y, 16-bit red, green, blue, alpha), then rectangles
-        // (two vertex indices) or triangles (three). Only meshes that reduce to solid
-        // fills are drawn; a shape without area draws nothing.
+        // (two vertex indices) or triangles (three). Only meshes that are solid, or nearly
+        // so, are drawn; a shape without area draws nothing.
         private void GradientFill(int p, int size)
         {
             int vertices = I32(p + 24), shapes = I32(p + 28), mode = I32(p + 32);
@@ -1088,20 +1088,28 @@ internal sealed partial class EmfScene
                     continue;
                 }
 
-                uint color = GradientColor(Vertex(0));
-                for (int i = 1; i < corners; i++)
+                // Banded gradients (a smooth fill drawn as thin strips) change by a step or
+                // two per strip; their average color is indistinguishable from the blend.
+                uint color = 0u;
+                for (int channel = 0; channel < 3; channel++)
                 {
-                    if (GradientColor(Vertex(i)) != color)
+                    int low = 255, high = 0, sum = 0;
+                    for (int i = 0; i < corners; i++)
+                    {
+                        int value = data[Vertex(i) + 9 + channel * 2];
+                        (low, high, sum) = (Math.Min(low, value), Math.Max(high, value), sum + value);
+                    }
+
+                    if (high - low > 3)
                     {
                         throw new NotSupportedException("EMF gradient fills with changing colors are not supported.");
                     }
+
+                    color |= (uint)((sum + corners / 2) / corners) << (channel * 8);
                 }
 
                 ops.Add(new EmfPathOp { Segments = MapToDevice(logical), FillColor = color, Clip = dc.Clip });
             }
-
-            uint GradientColor(int vertex) =>
-                (uint)(data[vertex + 9] | (data[vertex + 11] << 8) | (data[vertex + 13] << 16));
         }
 
         private void StretchDibits(int p)
