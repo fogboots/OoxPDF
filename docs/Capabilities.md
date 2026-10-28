@@ -23,9 +23,16 @@ and [diagnostics](Diagnostics.md) before relying on a conversion.
   image decoding and PDF primitives. Complex-script shaping and CFF embedding
   remain unsupported. Custom font identities must distinguish different programs.
 - The bounded PNG decoder supports 1/2/4/8-bit grayscale and indexed images,
-  plus 8-bit RGB, gray/alpha and RGBA. Palette transparency, transparent-color
-  keys and explicit alpha use the shared image path. Sixteen-bit PNG inputs
-  retain the unsupported-image fallback; complete PNG conformance is not promised.
+  plus 8/16-bit grayscale, RGB, gray/alpha and RGBA. Sixteen-bit samples are
+  rounded to 8 bits. Palette transparency, transparent-color keys and explicit
+  alpha use the shared image path; complete PNG conformance is not promised.
+- GIF pictures decode the first frame only (LZW, interlace, transparent index).
+  EMF pictures render a bounded vector subset (paths, polygons/polylines,
+  rectangles, ellipses, pens/brushes, world transform, mapping modes, clip
+  rectangles/paths, DIB bitmaps); bitmap-only EMF decodes as a raster picture.
+  EMF+ dual files use their EMF records. Text records, arcs, raster operations,
+  hatch/pattern brushes, EMF+-only files and WMF keep the unsupported-image
+  diagnostic.
 - Cooperative cancellation, bounded caches/page staging, optional coarse host
   memory admission and atomic file publication. These are specific safeguards,
   not whole-heap accounting; see the [operating envelope](OperatingEnvelope.md).

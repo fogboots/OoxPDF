@@ -36,7 +36,7 @@ internal static class ImagingTests
         TestAssert.True(OoxImageDecoder.IsPngContentType("image/png"), "Expected PNG classification.");
         TestAssert.True(OoxImageDecoder.IsBmpContentType("image/bmp"), "Expected BMP classification.");
         TestAssert.True(OoxImageDecoder.IsBmpContentType("image/x-ms-bmp"), "Expected BMP classification.");
-        foreach (string other in new[] { "image/gif", "image/svg+xml", "image/webp", "application/octet-stream" })
+        foreach (string other in new[] { "image/x-wmf", "image/svg+xml", "image/webp", "application/octet-stream" })
         {
             TestAssert.True(!OoxImageDecoder.IsSupportedContentType(other), "Expected unsupported classification for " + other);
         }
@@ -47,10 +47,10 @@ internal static class ImagingTests
         // D02: unknown types throw with the exact legacy message so both renderers
         // keep byte-identical IMAGE_UNSUPPORTED_FORMAT diagnostics.
         NotSupportedException pixels = TestAssert.Throws<NotSupportedException>(
-            () => OoxImageDecoder.DecodePixelsOwned("image/gif", [71, 73, 70]));
+            () => OoxImageDecoder.DecodePixelsOwned("image/webp", [82, 73, 70, 70]));
         TestAssert.Equal("Unsupported image content type.", pixels.Message);
         NotSupportedException image = TestAssert.Throws<NotSupportedException>(
-            () => OoxImageDecoder.Decode("image/gif", [71, 73, 70], static rgb => rgb));
+            () => OoxImageDecoder.Decode("image/webp", [82, 73, 70, 70], static rgb => rgb));
         TestAssert.Equal("Unsupported image content type.", image.Message);
     }
 

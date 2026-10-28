@@ -145,11 +145,11 @@ internal sealed class PngImage
     {
         return colorType switch
         {
-            0 => bitDepth is 1 or 2 or 4 or 8,
-            2 => bitDepth == 8,
+            0 => bitDepth is 1 or 2 or 4 or 8 or 16,
+            2 => bitDepth is 8 or 16,
             3 => bitDepth is 1 or 2 or 4 or 8,
-            4 => bitDepth == 8,
-            6 => bitDepth == 8,
+            4 => bitDepth is 8 or 16,
+            6 => bitDepth is 8 or 16,
             _ => false
         };
     }
@@ -164,9 +164,9 @@ internal sealed class PngImage
         int bitsPerPixel = colorType switch
         {
             0 or 3 => bitDepth,
-            2 => 24,
-            4 => 16,
-            6 => 32,
+            2 => bitDepth * 3,
+            4 => bitDepth * 2,
+            6 => bitDepth * 4,
             _ => throw new NotSupportedException($"Unsupported PNG color type {colorType}.")
         };
         int filterBytesPerPixel = Math.Max(1, (bitsPerPixel + 7) / 8);
@@ -246,8 +246,8 @@ internal sealed class PngImage
         switch (colorType)
         {
             case 0:
-                int graySample = ReadPackedSample(current, x, bitDepth);
-                byte gray = bitDepth == 8 ? (byte)graySample : (byte)(graySample * 255 / ((1 << bitDepth) - 1));
+                int graySample = bitDepth == 16 ? ReadSample16(current, x * 2) : ReadPackedSample(current, x, bitDepth);
+                byte gray = bitDepth == 8 ? (byte)graySample : bitDepth == 16 ? Reduce16(graySample) : (byte)(graySample * 255 / ((1 << bitDepth) - 1));
                 rgb[rgbTarget++] = gray;
                 rgb[rgbTarget++] = gray;
                 rgb[rgbTarget++] = gray;
@@ -256,6 +256,21 @@ internal sealed class PngImage
                     alpha[alphaTarget++] = MatchesTransparentSample(graySample, bitDepth, transparency, 0) ? (byte)0 : (byte)255;
                 }
 
+                break;
+
+            case 2 when bitDepth == 16:
+                int red16 = ReadSample16(current, x * 6);
+                int green16 = ReadSample16(current, x * 6 + 2);
+                int blue16 = ReadSample16(current, x * 6 + 4);
+                rgb[rgbTarget++] = Reduce16(red16);
+                rgb[rgbTarget++] = Reduce16(green16);
+                rgb[rgbTarget++] = Reduce16(blue16);
+                if (alpha is not null)
+                {
+                    alpha[alphaTarget++] = MatchesTransparentSample(red16, bitDepth, transparency, 0) &&
+                        MatchesTransparentSample(green16, bitDepth, transparency, 2) &&
+                        MatchesTransparentSample(blue16, bitDepth, transparency, 4) ? (byte)0 : (byte)255;
+                }
                 break;
 
             case 2:
@@ -289,6 +304,18 @@ internal sealed class PngImage
 
                 break;
 
+            case 4 when bitDepth == 16:
+                byte gray16 = Reduce16(ReadSample16(current, x * 4));
+                rgb[rgbTarget++] = gray16;
+                rgb[rgbTarget++] = gray16;
+                rgb[rgbTarget++] = gray16;
+                if (alpha is not null)
+                {
+                    alpha[alphaTarget++] = Reduce16(ReadSample16(current, x * 4 + 2));
+                }
+
+                break;
+
             case 4:
                 int grayAlphaOffset = x * 2;
                 byte grayAlpha = current[grayAlphaOffset];
@@ -298,6 +325,18 @@ internal sealed class PngImage
                 if (alpha is not null)
                 {
                     alpha[alphaTarget++] = current[grayAlphaOffset + 1];
+                }
+
+                break;
+
+            case 6 when bitDepth == 16:
+                int rgba16Offset = x * 8;
+                rgb[rgbTarget++] = Reduce16(ReadSample16(current, rgba16Offset));
+                rgb[rgbTarget++] = Reduce16(ReadSample16(current, rgba16Offset + 2));
+                rgb[rgbTarget++] = Reduce16(ReadSample16(current, rgba16Offset + 4));
+                if (alpha is not null)
+                {
+                    alpha[alphaTarget++] = Reduce16(ReadSample16(current, rgba16Offset + 6));
                 }
 
                 break;
@@ -314,6 +353,19 @@ internal sealed class PngImage
 
                 break;
         }
+    }
+
+    // 16-bit samples are big-endian. The PDF image stays 8 bits per component, so
+    // each sample is rounded to the nearest 8-bit value; tRNS keys still compare
+    // the full 16-bit source sample.
+    private static int ReadSample16(byte[] current, int offset)
+    {
+        return (current[offset] << 8) | current[offset + 1];
+    }
+
+    private static byte Reduce16(int sample)
+    {
+        return (byte)((sample * 255 + 32767) / 65535);
     }
 
     private static int ReadPackedSample(byte[] current, int x, int bitDepth)

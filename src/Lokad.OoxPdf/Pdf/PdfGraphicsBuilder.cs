@@ -328,6 +328,11 @@ internal sealed class PdfGraphicsBuilder
         builder.AppendLine("W n");
     }
 
+    public void ClipCurrentPathEvenOdd()
+    {
+        builder.AppendLine("W* n");
+    }
+
     public void StrokeLine(double x1, double y1, double x2, double y2)
     {
         builder.Append(PdfDocumentWriter.FormatNumber(x1)).Append(' ').Append(PdfDocumentWriter.FormatNumber(y1)).Append(" m ");

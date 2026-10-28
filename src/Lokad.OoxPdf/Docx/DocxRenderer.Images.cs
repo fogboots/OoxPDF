@@ -1,4 +1,5 @@
 using Lokad.OoxPdf.Diagnostics;
+using Lokad.OoxPdf.Imaging;
 using Lokad.OoxPdf.Pdf;
 using Lokad.OoxPdf.Pptx;
 
@@ -122,10 +123,43 @@ internal sealed partial class DocxRenderer
             if (image.RasterFallback is not { } preview) return;
             image = preview;
         }
+        if (TryDrawVectorEmf(image, x, y, width, height, graphics, pageImages, diagnosticSink, pageIndex, cancellationToken, imageCache, ref imageIndex)) return;
         PdfImageXObject? resource = CreateImage(image, imageCache, diagnosticSink, pageIndex, cancellationToken);
         if (resource is null) return;
         string name = "Im" + imageIndex++;
         graphics.DrawImage(name, x, y, width, height);
         pageImages.Add(new PdfImageResource(name, resource));
+    }
+
+    // Metafiles that are more than one picture-sized bitmap are drawn as vectors;
+    // bitmap-only EMF decodes to pixels through CreateImage. A failure is cached like
+    // any other undecodable image so a repeated metafile is diagnosed once.
+    private static bool TryDrawVectorEmf(DocxInlineImage image, double x, double y, double width, double height,
+        PdfGraphicsBuilder graphics, List<PdfImageResource> pageImages, Action<OoxPdfDiagnostic>? diagnosticSink,
+        int pageIndex, CancellationToken cancellationToken, Dictionary<string, PdfImageXObject?> imageCache, ref int imageIndex)
+    {
+        if (image.Bytes is not { } bytes || !OoxImageDecoder.IsEmfContentType(image.ContentType)) return false;
+        string? cacheKey = GetImageCacheKey(image);
+        if (cacheKey is not null && imageCache.ContainsKey(cacheKey)) return false;
+        int nextIndex = imageIndex;
+        try
+        {
+            EmfScene scene = EmfScene.Read(bytes, cancellationToken);
+            if (scene.IsBitmapOnly) return false;
+            EmfPdfWriter.Draw(graphics, scene, x, y, width, height, resource =>
+            {
+                string name = "Im" + nextIndex++;
+                pageImages.Add(new PdfImageResource(name, resource));
+                return name;
+            }, cancellationToken);
+            imageIndex = nextIndex;
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
+        {
+            if (cacheKey is not null) imageCache.TryAdd(cacheKey, null);
+            EmitImageDiagnostic(diagnosticSink, image, pageIndex, ex.Message);
+            return true;
+        }
     }
 }

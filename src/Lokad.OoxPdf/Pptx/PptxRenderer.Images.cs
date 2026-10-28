@@ -116,8 +116,16 @@ internal sealed partial class PptxRenderer
             return;
         }
 
+        // Metafiles that are more than one picture-sized bitmap are drawn as vectors;
+        // bitmap-only EMF shares the raster pipeline below.
+        EmfScene? emf = TryReadVectorEmf(imageResource, recolor, imageCache, diagnosticSink, slideIndex, cancellationToken, out bool emfFailed);
+        if (emfFailed)
+        {
+            return;
+        }
+
         PdfImageXObject? image = null;
-        if (!crop.IsEmpty)
+        if (emf is null && !crop.IsEmpty)
         {
             image = GetOrCreateCroppedImage(crop);
             if (image is not null)
@@ -176,13 +184,16 @@ internal sealed partial class PptxRenderer
             }
         }
 
-        image ??= GetOrCreateImage(imageResource, recolor, imageCache, diagnosticSink, slideIndex, cancellationToken);
-        if (image is null)
+        if (emf is null)
         {
-            return;
+            image ??= GetOrCreateImage(imageResource, recolor, imageCache, diagnosticSink, slideIndex, cancellationToken);
+            if (image is null)
+            {
+                return;
+            }
         }
 
-        string name = "Im" + index++;
+        string name = emf is null ? "Im" + index++ : string.Empty;
         double imageX = x + fillRect.Left * width;
         double imageY = y + fillRect.Bottom * height;
         double imageWidth = Math.Max(0.001d, width * (1d - fillRect.Left - fillRect.Right));
@@ -223,7 +234,11 @@ internal sealed partial class PptxRenderer
         if (preset != "rect")
             ClipToPresetShape(graphics, null, preset, x, y, width, height, geometry.PresetAdjustments);
         graphics.ClipRectangleEvenOdd(clipX, clipY, clipWidth, clipHeight);
-        if (crop.IsEmpty)
+        if (emf is not null)
+        {
+            DrawEmfPicture(graphics, emf, imageX, imageY, imageWidth, imageHeight, crop, images, ref index, imageResource.PartName, diagnosticSink, slideIndex, cancellationToken);
+        }
+        else if (crop.IsEmpty)
         {
             graphics.DrawImage(name, imageX, imageY, imageWidth, imageHeight);
         }
@@ -244,7 +259,10 @@ internal sealed partial class PptxRenderer
             graphics.RestoreState();
         }
 
-        images.Add(new PdfImageResource(name, image));
+        if (image is not null)
+        {
+            images.Add(new PdfImageResource(name, image));
+        }
 
         StrokePictureFrame(document, graphics, transformedBounds, x, y, width, height, line, hasTransform, preset, geometry.PresetAdjustments);
     }
