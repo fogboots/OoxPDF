@@ -447,6 +447,26 @@ public sealed class WindowsFontResolver : IFontResolver, IFontCatalog
             return SelectBest(exact, request);
         }
 
+        // Linux images ship redistributable Office-compatible families. Resolve the
+        // intended family before the generic alphabetic fallback, preserving style.
+        if (OperatingSystem.IsLinux())
+        {
+            string? substitute = request.FamilyName.ToUpperInvariant() switch
+            {
+                "CALIBRI" or "CALIBRI LIGHT" or "APTOS" or "APTOS DISPLAY" => "Carlito",
+                "CAMBRIA" => "Caladea",
+                "ARIAL" or "ARIAL NARROW" or "HELVETICA" => "Liberation Sans",
+                "TIMES NEW ROMAN" or "TIMES" => "Liberation Serif",
+                "COURIER NEW" or "COURIER" => "Liberation Mono",
+                "CAMBRIA MATH" => "STIX Two Math",
+                "SYMBOL" => "DejaVu Sans",
+                "WINGDINGS" or "WINGDINGS 2" or "WINGDINGS 3" or "WEBDINGS" or "SEGOE UI SYMBOL" => "Noto Sans Symbols 2",
+                _ => null
+            };
+            if (substitute is not null && snapshot.ByFamily.TryGetValue(substitute, out var alternatives) && alternatives.Length != 0)
+                return SelectBest(alternatives, request) with { RequestedFamily = request.FamilyName, IsFallback = true };
+        }
+
         if (snapshot.TextFaces.Length != 0)
         {
             return SelectBest(snapshot.TextFaces, request) with { RequestedFamily = request.FamilyName, IsFallback = true };
