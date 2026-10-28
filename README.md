@@ -1,259 +1,113 @@
-# OoxPDF, production fork
+# OoxPDF
 
-A fork of [Lokad.OoxPdf](https://github.com/Lokad/OoxPDF), the pure .NET renderer that turns `.pptx` and `.docx` files into PDF without Office or LibreOffice. This fork runs in production behind a document upload pipeline and has converted over 5,000 real-world decks and Word files. Everything here came out of that: a file rendered wrong, we found out why, and we fixed it in the library.
+Fast PowerPoint and Word to PDF conversion in pure .NET. No Office, no LibreOffice, no headless browser. One self-contained binary that turns a `.pptx` or `.docx` into a PDF about 14 times faster than LibreOffice.
 
-The upstream library documentation follows below the fork notes. Everything in it still applies.
+This is a production fork of [Lokad.OoxPdf](https://github.com/Lokad/OoxPDF). It runs behind a document upload pipeline that has converted over 5,000 real-world decks and Word files, and every change here came from a file that rendered wrong or too slowly.
 
-## What this fork adds
+## How fast
 
-**Pictures and metafiles**
-- WMF pictures, drawn through the same device context as EMF.
-- EMF and WMF text drawn as glyph outlines from installed fonts, with Symbol and MT Extra mapped to Unicode.
-- Vertical `@`-font text in metafiles: CJK characters stand upright using the font's GSUB `vert`/`vrt2` alternates, as GDI draws them.
-- Metafile ANSI text decoded through the charset's Windows code page, including the double-byte ones (Shift-JIS, GBK, Big5, Wansung, Johab).
-- No-op blits, solid gradient fills and banded EMF gradients.
-- 16-bit PNG, first-frame GIF and TIFF pictures.
-- JPEG with restart intervals, plus faster Huffman decoding and IDCT. Progressive and CMYK JPEGs are passed through unchanged as DCT data and clipped to their crop.
-- Picture colour change (`clrChange`) transparency.
+Same 62 real-world files (50 decks, 12 Word documents), same machine:
 
-**Shapes and fills**
-- SmartArt, drawn from the layout PowerPoint saves next to the diagram data.
-- Callouts (wedge, ellipse, cloud, border, accent and arrow families), built from the ECMA-376 preset definitions with their adjust values.
-- Pictures clipped to custom geometry instead of their rectangle.
-- Preset pattern fills drawn as 8x8 Office bitmap tiles.
-- Glow on rounded, elliptical and polygon presets.
-- Group fill alpha.
-- OLE objects drawn from their saved preview picture.
-
-**Tables**
-- Table styles read from `tableStyles.xml`, with every layer cascaded per cell: whole table, bands, first and last row and column, and corners. Tint and shade use Office's linear-light math.
-- Built-in definitions for the three styles decks most often reference without defining.
-
-**Text, math and fonts**
-- Native slide math with theme colours. When the saved fallback picture is missing, the equation stays as linear text.
-- Symbol fonts mapped to Unicode.
-- Math faces used as the last glyph fallback.
-- Master placeholder frames inherited correctly.
-- Translucent text kept extractable.
-- On Linux, Office font names resolve to their metric-compatible substitutes (see [Fonts](#fonts-matter-more-than-anything-else)).
-
-**DOCX**
-- Floating rectangles and lines, rotated pictures without a line frame, and full-width VML horizontal rules.
-- Inline charts, rendered by the slide chart renderer.
-- Indents saved in character units.
-
-**Speed**
-- Table cells are measured once instead of once per row placed. Building the table frame re-measured every cell for every row, which made long tables quadratic.
-- Font lookups no longer build and hash a new identity string on every call.
-- Cloned DOCX runs are found by value instead of by a linear scan.
-
-Every speed change was checked for byte-identical output on all 2,038 test fixtures. Every fidelity change was run against the same fixtures and each changed output was looked at.
-
-## Numbers
-
-All numbers below come from a NativeAOT build on Apple Silicon, one process per file, on a machine that was under heavy load at the time. Read the CPU numbers as upper bounds.
-
-Two table-heavy Word documents:
-
-| Document | Before | After |
-|---|---:|---:|
-| Long tables | 5.4 s | 1.3 s |
-| Medium tables | 363 ms | 50 ms |
-
-The sample: 50 real-world decks and 12 Word documents, all users' uploads.
-
-| | Median size | Peak memory (median / p90 / max) | CPU time (median / p90 / max) |
+| | OoxPDF | LibreOffice, one process per file | LibreOffice, one process for all 62 |
 |---|---:|---:|---:|
-| PPTX | 2.2 MB | 72 / 151 / 263 MB | 0.50 / 2.01 / 6.09 s |
-| DOCX | 2.4 MB | 59 / 98 / 128 MB | 0.10 / 0.83 / 2.24 s |
+| **Total time, 62 files** | **28 s** | 398 s (14x slower) | 189 s (6.7x slower) |
+| Total CPU time | 27 s | 254 s | 176 s |
+| Median deck | **0.36 s** | 4.4 s | |
+| Median Word file | **0.07 s** | 3.2 s | |
+| Failed conversions | 0 | 0 | 0 |
 
-A small Word document converts in about 20 ms end to end, process start included.
+Per file, OoxPDF was faster on every one of the 62: the median file was 15x faster (14x for decks, 31x for Word files), the closest was 1.9x and the widest gap was 265x. Even when LibreOffice converts all 62 files in one process, so it only pays its startup cost once, OoxPDF does the same work in about 15% of the time and CPU.
 
-None of the 62 files fails, and none reports missing content. The diagnostics that remain are animations and transitions, hyperlink actions, video, Word comments, one combining-mark approximation, and equations drawn from the picture PowerPoint saved with them.
+Measured on an Apple M3 against LibreOffice 25.8 (`soffice --headless --convert-to pdf` with a warmed-up profile), each file converted by both tools back to back on an otherwise idle machine. The files are private uploads, so only aggregates are published.
 
-## Running it in production
+Where the speed comes from:
 
-This is how we run it, and what we learned along the way.
+- **NativeAOT.** The CLI compiles to one native binary, so there is no runtime to load and no JIT warm-up. A small Word file takes about 20 ms end to end, process start included.
+- **No office suite.** LibreOffice has to start, load its whole application model and import the document before it can export. OoxPDF reads the OOXML parts it needs and writes PDF directly.
+- **No quadratic layout.** This fork measures each table cell once (it used to be re-measured for every row placed), resolves fonts without building a key string per lookup, and finds cloned Word runs by value. Table-heavy Word files went from 5.4 s to 1.3 s and from 363 ms to 50 ms, with byte-identical output.
+- **Small memory footprint.** Peak memory per process on the sample: median 72 MB for decks and 59 MB for Word files, largest 263 MB.
 
-### Build NativeAOT
+## Quick start
+
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) and, for the native build, the platform's C toolchain (`clang` and `zlib1g-dev` on Linux, Xcode command line tools on macOS).
 
 ```sh
+git clone https://github.com/fogboots/OoxPDF.git
+cd OoxPDF
 dotnet publish src/Lokad.OoxPdf.Cli -c Release -r linux-x64 -p:PublishAot=true -o out
+# macOS: -r osx-arm64, Windows: -r win-x64
 ```
 
-The AOT binary starts in milliseconds and needs no .NET runtime in the image. Process start becomes a rounding error, so a process per conversion costs almost nothing.
+Convert a file:
 
-### One process per conversion
+```sh
+out/Lokad.OoxPdf.Cli convert deck.pptx deck.pdf
+out/Lokad.OoxPdf.Cli convert report.docx report.pdf --diagnostics report.json
+```
 
-Run the CLI as a child process for each file instead of calling the library inside a long-lived server.
+The command is the same for `.pptx` and `.docx`. Options:
 
-- A pathological file can only take down its own process.
-- Watch the child's resident memory (we poll every 25 ms) and kill it above a cap. We use 384 MiB; the largest file in the sample above peaked at 263 MB.
-- Kill it after a hard timeout. We use 30 s; the slowest file in the sample used about 6 s of CPU.
-- Cap the managed heap so the GC works harder before the kernel steps in:
+| Option | What it does |
+|---|---|
+| `--diagnostics <file>` | Writes a JSON list of everything the renderer approximated or skipped |
+| `--strict` | Exits with code `3` if any warning or error was reported |
+| `--docx-markup final\|original\|simple\|all` | How Word tracked changes and comments are shown (default `final`) |
 
-  ```sh
-  DOTNET_GCHeapHardLimit=0x10000000   # 256 MiB
-  DOTNET_GCConserveMemory=5
-  ```
+Exit codes: `0` converted, `1` conversion failed, `2` bad arguments, `3` converted with warnings under `--strict`.
 
-- Wait for the process to exit instead of polling for it. Polling adds up to one interval to every conversion.
+### Fonts
 
-### Scale out, not up
+Fonts decide whether the PDF looks right: a wrong font width reflows every line, and a missing glyph shows up as a box. On Linux and macOS the converter reads fonts from a `Fonts/` folder in the working directory. On Windows it uses the installed Windows fonts.
 
-Put a semaphore in front of the child processes and size it so the slot count times the per-process memory cap fits the container. Add containers for more throughput. Because each conversion is its own process, the memory cap is per file, and one huge deck can't push the others out of memory.
+On Linux this fork maps Office font names to free, metric-compatible substitutes, so text wraps where it did in Office:
 
-### Fonts matter more than anything else
-
-In our experience missing fonts cause more wrong-looking output than anything else: wrong widths reflow every line, and missing glyphs show up as boxes. On Linux the resolver reads a `Fonts/` folder in the working directory, and this fork maps Office family names to metric-compatible substitutes found there:
-
-| Office font | Substitute | Debian/Ubuntu package |
+| Office font | Substitute | Ubuntu/Debian package |
 |---|---|---|
 | Calibri, Calibri Light, Aptos | Carlito | `fonts-crosextra-carlito` |
 | Cambria | Caladea | `fonts-crosextra-caladea` |
 | Arial, Helvetica | Liberation Sans | `fonts-liberation` |
 | Times New Roman | Liberation Serif | `fonts-liberation` |
 | Courier New | Liberation Mono | `fonts-liberation` |
-| Cambria Math | STIX Two Math | from Google Fonts |
-| Wingdings, Webdings, Segoe UI Symbol | Noto Sans Symbols 2 | from Google Fonts |
+| Cambria Math | STIX Two Math | Google Fonts |
+| Wingdings, Webdings, Segoe UI Symbol | Noto Sans Symbols 2 | Google Fonts |
 | Symbol | DejaVu Sans | `fonts-dejavu-core` |
 
-Also add Noto Emoji and `fonts-droid-fallback`. Droid Sans Fallback covers Chinese, Japanese and Korean, and it carries the vertical alternates that vertical text needs. Then link everything into the working directory:
+Add Noto Emoji for emoji, and `fonts-droid-fallback` for Chinese, Japanese and Korean (it also has the vertical glyph forms that vertical text needs).
+
+### Docker
+
+This is the image we run, minus our HTTP wrapper:
 
 ```dockerfile
-RUN mkdir -p /app/Fonts && find /usr/share/fonts -type f -name '*.ttf' -exec ln -s {} /app/Fonts/ \;
+FROM mcr.microsoft.com/dotnet/sdk:10.0-noble AS build
+RUN apt-get update && apt-get install -y --no-install-recommends clang zlib1g-dev curl && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY . .
+RUN dotnet publish src/Lokad.OoxPdf.Cli -c Release --use-current-runtime -p:PublishAot=true -o /out
+RUN curl -fsSL https://raw.githubusercontent.com/google/fonts/main/ofl/stixtwomath/STIXTwoMath-Regular.ttf -o /out/STIXTwoMath-Regular.ttf \
+ && curl -fsSL https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssymbols2/NotoSansSymbols2-Regular.ttf -o /out/NotoSansSymbols2-Regular.ttf \
+ && curl -fsSL 'https://raw.githubusercontent.com/google/fonts/main/ofl/notoemoji/NotoEmoji%5Bwght%5D.ttf' -o /out/NotoEmoji.ttf
+
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libicu74 libssl3t64 zlib1g libstdc++6 \
+      fonts-liberation fonts-dejavu-core fonts-crosextra-carlito fonts-crosextra-caladea fonts-droid-fallback \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+RUN mkdir Fonts && find /usr/share/fonts -type f -name '*.ttf' -exec ln -s {} Fonts/ \;
+COPY --from=build /out/Lokad.OoxPdf.Cli /usr/local/bin/ooxpdf
+COPY --from=build /out/*.ttf Fonts/
+ENV DOTNET_GCHeapHardLimit=0x10000000 DOTNET_GCConserveMemory=5
+ENTRYPOINT ["ooxpdf"]
 ```
 
-### Use diagnostics to decide when to fall back
-
-Run with `--diagnostics out.json`. Each diagnostic names what the renderer could not draw exactly. Some only change appearance: animations and transitions (meaningless in a PDF), hyperlink actions, video, and approximated equations. Others mean content is missing. We accept the first kind and send the second kind to LibreOffice. That way a fallback only runs when it would actually produce a better PDF, and the diagnostic counts tell you which feature to fix next.
-
-Keep the fallback until you have checked your own documents. A diagnostic only covers what the renderer knows it skipped, so compare pages against a reference on a real sample before you trust a new feature.
-
-## Making it faster without breaking it
-
-- **Profile real files, not fixtures.** The two big wins only showed up on large real-world documents. A sampling profiler (`dotnet-trace`, or `sample <pid>` on macOS) sorted by inclusive time points straight at them.
-- **Look for work repeated per row or per page.** Layout code that rebuilds a frame for every row placed is quadratic without looking like it. Memoize per-object measurements (`ConditionalWeakTable` works well for objects you don't own), keyed on everything the result depends on.
-- **Don't build strings on hot paths.** A font identity string built by concatenation and hashed on every lookup sat near the top of the profile. Build identities once and look up by reference first.
-- **Require byte-identical output.** Speed changes must not change pixels. `perf/hash_fixtures.py` converts every fixture, records the PDF hash, wall time and peak memory, and compares two runs:
-
-  ```sh
-  python3 perf/hash_fixtures.py out/Lokad.OoxPdf.Cli before.json
-  # make the change, rebuild
-  python3 perf/hash_fixtures.py out/Lokad.OoxPdf.Cli after.json --compare before.json
-  ```
-
-- **Time each change back to back.** On a busy machine a baseline taken while something else was running can show a 20% gain that isn't there. Ours did.
-
-## License and credits
-
-MIT, like upstream. All credit for the renderer goes to [Lokad](https://github.com/Lokad/OoxPDF); this fork adds to it. Thirteen of the 8x8 pattern tiles (pct5, pct10, pct20, dashHorz, lgConfetti, horzBrick, zigZag, diagBrick, sphere, weave, dotGrid, divot, shingle) match the Office tiles in LibreOffice's pattern palette (MPL 2.0). Fonts are not included; install them under their own licenses.
-
----
-
-# Lokad.OoxPdf (upstream documentation)
-
-The **0.2.0-preview** candidate is prepared; publication is deferred. Read the
-[preview scope and limitations](docs/PreviewRelease.md) and
-[caller migration notes](docs/PublicApiChanges.md).
-
-`Lokad.OoxPdf` is a dependency-free .NET OOXML-to-PDF renderer for `.pptx` and `.docx` files. The library reads Office Open XML packages directly, builds static PDF pages, and does not call Microsoft Office, PDFium, PowerShell, external executables, or third-party packages at runtime.
-
-The current renderer is intended for corporate decks and documents. PPTX rendering is the more mature path; DOCX rendering supports text, page setup, headers and footers, images, tables, numbering, and diagnostics, with layout coverage still being expanded bottom-up.
-
-Release notes are tracked in [CHANGELOG.md](CHANGELOG.md).
-
-## Runtime Model
-
-The converter runtime is pure managed .NET:
-
-- no Office automation;
-- no PDFium;
-- no PowerShell scripts;
-- no native image, font, browser, or PDF libraries;
-- no NuGet package dependencies in `src/Lokad.OoxPdf`.
-
-The runtime inputs are the OOXML file or stream, the output PDF path or stream, options, diagnostics callbacks, and resolved font programs. Validation tools under `tools/` use Office and PDFium, but those tools are not part of library conversion.
-
-Rendering follows this broad pipeline:
-
-```text
-OOXML package -> typed document/scene model -> layout -> PDF pages/resources
+```sh
+docker build -t ooxpdf .
+docker run --rm -v "$PWD:/work" ooxpdf convert /work/deck.pptx /work/deck.pdf
 ```
 
-Font handling follows a storage-neutral pipeline:
+### From .NET code
 
-```text
-FontRequest -> FontFaceResolution -> IFontProgramSource -> OpenTypeFont -> embedded PDF font
-```
-
-## Fonts And Portability
-
-OOXPDF embeds resolved OpenType font programs in generated PDFs when a font source is available. Font access is intentionally not hard-wired to the filesystem: an `IFontResolver` returns a `FontFaceResolution`, and that resolution carries an `IFontProgramSource`.
-
-An `IFontProgramSource` can be backed by files, memory, blob storage, memory-mapped files, embedded resources, or another deployment-specific source:
-
-```csharp
-public interface IFontProgramSource
-{
-    string StableId { get; }
-    ValueTask<ReadOnlyMemory<byte>> GetBytesAsync(CancellationToken ct = default);
-}
-```
-
-The built-in `WindowsFontResolver` is a file-backed resolver for local Windows font directories. For deterministic Linux operation, `OoxPdfFontPackResolver` can load a packaged font manifest over HTTP(S) and lazily download only the font programs that conversion actually uses:
-
-```csharp
-using Lokad.OoxPdf;
-using Lokad.OoxPdf.Fonts;
-
-using var httpClient = new HttpClient();
-IFontResolver fontResolver = await OoxPdfFontPackResolver.CreateHttpAsync(
-    "office-compatible-v1",
-    new Uri("https://example.test/ooxpdf-fonts/"),
-    httpClient,
-    cancellation.Token);
-
-await OoxPdfConverter.ConvertAsync(
-    "input.pptx",
-    "output.pdf",
-    new OoxPdfOptions { FontResolver = fontResolver },
-    cancellation.Token);
-```
-
-Each pack is served from `<source>/<packId>/manifest.json`. Font files are addressed by relative paths in the manifest, and each file is checked against its declared byte size and SHA-256 hash before use:
-
-```json
-{
-  "packId": "office-compatible-v1",
-  "files": [
-    {
-      "relativePath": "files/aptos.ttf",
-      "byteSize": 131072,
-      "sha256": "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
-    }
-  ],
-  "families": [
-    {
-      "requestedFamily": "Aptos",
-      "resolvedFamily": "Aptos",
-      "relativeFontFile": "files/aptos.ttf",
-      "weight": 400,
-      "italic": false,
-      "faceIndex": 0,
-      "hasMathTable": false
-    }
-  ],
-  "fallbacks": [
-    { "family": "Aptos" }
-  ]
-}
-```
-
-Without resolved font programs, conversion may still produce a PDF, but typography, wrapping, glyph coverage, and visual fidelity are degraded.
-
-## Library Usage
+Reference `src/Lokad.OoxPdf` (it has no package dependencies), then:
 
 ```csharp
 using Lokad.OoxPdf;
@@ -261,156 +115,52 @@ using Lokad.OoxPdf.Diagnostics;
 
 var diagnostics = new List<OoxPdfDiagnostic>();
 
-OoxPdfConverter.Convert(
-    "input.docx",
-    "output.pdf",
-    new OoxPdfOptions
-    {
-        DiagnosticSink = diagnostics.Add,
-        DocxMarkupMode = OoxPdfDocxMarkupMode.Final
-    });
-```
-
-Conversion is cooperatively cancellable. Use the async API when the host already has an async request
-lifetime, or the token-aware synchronous overload when the caller is synchronous:
-
-```csharp
-using var cancellation = new CancellationTokenSource();
-
 await OoxPdfConverter.ConvertAsync(
-    "input.docx",
-    "output.pdf",
-    cancellation.Token);
+    "deck.pptx",
+    "deck.pdf",
+    new OoxPdfOptions { DiagnosticSink = diagnostics.Add },
+    cancellationToken);
 ```
 
-The same token is passed through package loading, OOXML reading, rendering, font loading, and PDF writing.
-Custom `IFontProgramSource.GetBytesAsync(CancellationToken)` implementations should observe the token.
+Streams work too: `OoxPdfConverter.ConvertAsync(inputStream, outputStream, options, cancellationToken)`. To load fonts from somewhere other than a folder (blob storage, embedded resources), pass your own `IFontResolver` in `OoxPdfOptions.FontResolver`; see [the upstream font documentation](https://github.com/Lokad/OoxPDF#fonts-and-portability).
 
-Use `OoxPdfInputKind.Pptx` or `OoxPdfInputKind.Docx` in `OoxPdfOptions.InputKind` to override extension-based detection.
+## Running it at scale
 
-Stream conversion avoids materializing temporary input and output files. Seekable input may be randomly accessed; forward-only input uses bounded, cancellation-aware staging. PDF output requires only forward writes. Page-content staging may still spill to a bounded temporary file when a page exceeds the resident window (see OoxConversionLimits); the spill is cleaned up on completion. For stream input, `InputKind` must be `Pptx` or `Docx` because there is no filename extension to inspect. The converter leaves caller-owned streams open. If conversion fails, including cancellation or an output limit, the output stream may contain an incomplete PDF prefix; discard that output before retrying. File overloads instead publish atomically and preserve an existing destination on failure:
+What we learned converting thousands of uploads:
 
-```csharp
-using var input = new MemoryStream(ooxmlBytes, writable: false);
-using var output = new MemoryStream();
+- **One process per file.** Call the CLI as a child process instead of hosting the library in a long-lived server. With NativeAOT, starting a process costs almost nothing, and a bad file can only take down its own process.
+- **Cap memory and time per process.** Watch the child's resident memory and kill it above a limit (we use 384 MiB and check every 25 ms), and kill it after a timeout (we use 30 s). Set `DOTNET_GCHeapHardLimit` and `DOTNET_GCConserveMemory` so the GC tightens up before your limit is reached.
+- **Wait on the process, don't poll it.** Polling for exit adds up to one polling interval to every conversion.
+- **Bound concurrency per container.** Put a semaphore in front of the child processes and size it so slots times memory limit fits the container. Add containers for more throughput.
+- **Use diagnostics to route fallbacks.** Some diagnostics only change appearance (animations and transitions, which a PDF can't show anyway, hyperlink actions, video, approximated equations). Others mean content is missing. Accept the first kind; send the second kind to a fallback renderer if you keep one. On our sample of 62 files, none reports missing content.
+- **Keep a fallback until you've checked your own files.** Diagnostics only cover what the renderer knows it skipped. Compare pages against a reference on a sample of your real documents before you remove it.
 
-await OoxPdfConverter.ConvertAsync(
-    input,
-    output,
-    new OoxPdfOptions
-    {
-        InputKind = OoxPdfInputKind.Pptx
-    },
-    cancellation.Token);
+## Making it faster without breaking it
 
-byte[] pdfBytes = output.ToArray();
-```
+- **Profile real files.** Both big wins only showed up on large real-world documents. A sampling profiler (`dotnet-trace`, or `sample <pid>` on macOS) sorted by inclusive time points straight at them.
+- **Look for work repeated per row or per page.** Layout that rebuilds a frame for every row placed is quadratic without looking like it. Memoize per-object measurements (`ConditionalWeakTable` works for objects you don't own), keyed on everything the result depends on.
+- **Keep string building off hot paths.** A font identity string concatenated and hashed on every lookup sat near the top of the profile. Build identities once and look up by reference first.
+- **Require byte-identical output.** `perf/hash_fixtures.py` converts every test fixture, records each PDF's hash, wall time and peak memory, and compares two runs:
 
-Advanced deployments can provide their own font resolver:
+  ```sh
+  python3 perf/hash_fixtures.py out/Lokad.OoxPdf.Cli before.json
+  # make the change, rebuild
+  python3 perf/hash_fixtures.py out/Lokad.OoxPdf.Cli after.json --compare before.json
+  ```
 
-```csharp
-using Lokad.OoxPdf;
-using Lokad.OoxPdf.Fonts;
+- **Time changes back to back on a quiet machine.** A baseline taken while something else was running once showed us a 20% gain that wasn't there.
 
-public sealed class MyFontResolver : IFontResolver
-{
-    public FontFaceResolution Resolve(FontRequest request)
-    {
-        // Resolve identity and bytes together. Different regular/bold/italic
-        // programs need different identities; identical programs may share one.
-        (string programId, byte[] bytes) = LoadFontProgramFromPackageOrBlob(request);
+## What this fork adds to upstream
 
-        return new FontFaceResolution(
-            request.FamilyName,
-            "Resolved Family",
-            new FontStyleKey(request.Bold, request.Italic),
-            new MemoryFontProgramSource(programId, bytes),
-            IsFallback: false);
-    }
-}
+- **Speed:** table cells measured once, font lookup without per-call key strings, Word runs found by value, faster JPEG Huffman decoding and IDCT.
+- **Pictures:** WMF, EMF and WMF text drawn from font outlines, vertical CJK text in metafiles, double-byte code pages (Shift-JIS, GBK, Big5, Korean), 16-bit PNG, GIF, TIFF, JPEG with restart intervals, progressive and CMYK JPEG passed through, picture recolor transparency.
+- **Shapes:** SmartArt, callouts, pictures clipped to custom shapes, pattern fills, glow, group transparency, OLE object previews.
+- **Tables:** table styles from `tableStyles.xml` with every layer applied per cell, plus the built-in styles decks reference without defining.
+- **Text and math:** native slide math with theme colors, symbol fonts mapped to Unicode, math fonts as the last glyph fallback, inherited master placeholders, Office font substitution on Linux.
+- **Word:** floating shapes and lines, rotated pictures, horizontal rules, inline charts, character-unit indents.
 
-OoxPdfConverter.Convert(
-    "input.pptx",
-    "output.pdf",
-    new OoxPdfOptions
-    {
-        FontResolver = new MyFontResolver()
-    });
-```
+Every speed change produces byte-identical output on all 2,038 test fixtures. The library's design, API and test suite are upstream's; see the [upstream README](https://github.com/Lokad/OoxPDF#readme) and the [`docs/`](docs) folder for the rendering model, capabilities and diagnostics reference.
 
-## CLI Usage
+## License
 
-```powershell
-dotnet build src/Lokad.OoxPdf.Cli/Lokad.OoxPdf.Cli.csproj
-dotnet src/Lokad.OoxPdf.Cli/bin/Debug/net10.0/Lokad.OoxPdf.Cli.dll convert input.pptx output.pdf --diagnostics diagnostics.json
-dotnet src/Lokad.OoxPdf.Cli/bin/Debug/net10.0/Lokad.OoxPdf.Cli.dll convert input.docx output.pdf --docx-markup all --diagnostics diagnostics.json
-```
-
-Add `--strict` to make the command return exit code `3` when conversion succeeds but warnings or errors were emitted.
-
-File conversion and CLI diagnostics reject case-only aliases of their input or
-output. Distinct spellings are allowed when existing directory entries establish
-separation. Unresolved case-only paths, including two uncreated outputs, refuse
-conservatively; choose names that differ beyond case.
-
-Exit codes:
-
-- `0`: conversion succeeded without strict-mode warnings or errors.
-- `1`: conversion failed.
-- `2`: invalid CLI arguments or unsupported input selection.
-- `3`: conversion succeeded, but `--strict` saw diagnostics with warning or error severity.
-
-## Visual Validation
-
-Visual validation compares an Office-rendered reference against the candidate PDF rasterized with PDFium:
-
-```powershell
-pwsh tools/CheckVisualCase.ps1 -Case visual-cases/cases/pptx-blank/case.json
-```
-
-The command writes timestamped artifacts under `artifacts/visual/<case-id>/<run-id>/`, including reference PNGs, candidate PDF and PNGs, diagnostics JSON, pixel metrics, a comparison HTML file, and an assessment template.
-
-The validation tools require Windows with Office installed for reference rendering. PDF rasterization uses the exact vendored `tools/vendor/pdfium/win-x64/bin/pdfium.dll`; follow the [pinned-binary instructions](https://github.com/Lokad/OoxPDF/blob/master/docs/VisualValidation.md#requirements). These tools are not used by the library.
-
-## Capabilities And Limits
-
-See [docs/Capabilities.md](https://github.com/Lokad/OoxPDF/blob/master/docs/Capabilities.md) for the supported, partial, approximated, and unsupported PPTX/DOCX feature set.
-
-See [docs/Diagnostics.md](https://github.com/Lokad/OoxPDF/blob/master/docs/Diagnostics.md) for diagnostic code conventions and emitted unsupported-feature warnings.
-
-See [docs/DocxMarkupModes.md](https://github.com/Lokad/OoxPDF/blob/master/docs/DocxMarkupModes.md) for DOCX final/original/simple/all markup mode semantics, CLI usage, and current approximations.
-
-See [docs/RenderingModel.md](https://github.com/Lokad/OoxPDF/blob/master/docs/RenderingModel.md) for the package, layout, page, and PDF writer architecture.
-
-See [docs/OperatingEnvelope.md](https://github.com/Lokad/OoxPDF/blob/master/docs/OperatingEnvelope.md) for measured memory and
-concurrency workloads, reproduction steps, and the limits of those measurements.
-
-See [docs/PrivateValidation.md](https://github.com/Lokad/OoxPDF/blob/master/docs/PrivateValidation.md) for local-only validation of documents that must not be versioned or made public.
-
-## Development
-
-```powershell
-dotnet restore Lokad.OoxPdf.slnx
-dotnet build Lokad.OoxPdf.slnx
-dotnet run --project tests/Lokad.OoxPdf.Tests -- --skip-slow
-dotnet pack src/Lokad.OoxPdf/Lokad.OoxPdf.csproj --no-restore
-```
-
-Packages are written to `artifacts/nuget/`.
-
-Use `--test <name>` for a name filter or `--test-set <file.json>` for a JSON
-array of exact method names. Unknown arguments, missing values and repeated
-options fail before tests run. Exact sets cannot be combined with `--group` or `--test`.
-
-CI runs on Windows and Ubuntu. Both build the full solution and run the visual
-manifest, allocation, package, comparison, tokenizer, and chart-classifier gates.
-Windows runs the full console suite (excluding slow tests), the text-content
-gate, and the PDFium visual probe. Ubuntu intentionally runs the portable `api`,
-`ooxml`, `pdf`, `imaging`, `fonts`, and `rendering-portable` console groups; tests requiring installed
-Windows fonts skip when those fonts are absent. Its package smoke test supplies
-DejaVu Sans through a custom font resolver and checks font embedding. Console
-test reports are uploaded separately for each operating system.
-Package smoke tests use a fresh local feed and isolated restore directory, then
-verify that the consumer loaded the exact library DLL from the newly packed package.
-
-`src/Lokad.OoxPdf` is the NuGet library and must remain free of package references. Office automation and PDFium are isolated under `tools/` for validation only.
+MIT, like upstream. Credit for the renderer goes to [Lokad](https://github.com/Lokad/OoxPDF). Thirteen of the 8x8 pattern tiles (pct5, pct10, pct20, dashHorz, lgConfetti, horzBrick, zigZag, diagBrick, sphere, weave, dotGrid, divot, shingle) match the Office tiles in LibreOffice's pattern palette (MPL 2.0). Fonts are not included; install them under their own licenses.
