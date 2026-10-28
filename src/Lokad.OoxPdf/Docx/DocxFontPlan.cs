@@ -155,6 +155,7 @@ internal sealed class DocxFontPlanTextMeasurer : IDocxTextMeasurer, IDocxLineMet
     private readonly bool resolveSourceAdvances;
     private readonly Dictionary<(string StableId, int FaceIndex, string? PrimaryFamily, bool Bold, bool Italic), IReadOnlyList<OpenTypeFont?>> candidateChains = new();
     private readonly Dictionary<DocxTextRun, DocxResolvedRunTypeface> runsByReference = new(ReferenceEqualityComparer.Instance);
+    private Dictionary<DocxTextRun, DocxResolvedRunTypeface>? runsByValue;
     // Layout asks for the same resolution's font many times per line; a reference lookup
     // skips hashing the source id on every call.
     private readonly Dictionary<FontFaceResolution, OpenTypeFont?> fontsByResolution = new(ReferenceEqualityComparer.Instance);
@@ -463,18 +464,21 @@ internal sealed class DocxFontPlanTextMeasurer : IDocxTextMeasurer, IDocxLineMet
             return fast;
         }
 
-        foreach (DocxResolvedRunTypeface resolved in runs)
+        // Cloned runs miss the reference-identity index and match the first plan run with
+        // equal values. Memoize confirmed matches so each distinct clone looks up once.
+        if (runsByValue is null)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (resolved.Run.Equals(run))
+            runsByValue = new Dictionary<DocxTextRun, DocxResolvedRunTypeface>();
+            foreach (DocxResolvedRunTypeface candidate in runs)
             {
-                // cloned runs miss the reference-identity index and pay the
-                // linear record-equality fallback every measurement. Memoize confirmed
-                // matches so each distinct clone falls back once; the fallback stays as
-                // the correctness backstop for unseen runs.
-                runsByReference[run] = resolved;
-                return resolved;
+                runsByValue.TryAdd(candidate.Run, candidate);
             }
+        }
+
+        if (runsByValue.TryGetValue(run, out DocxResolvedRunTypeface? resolved))
+        {
+            runsByReference[run] = resolved;
+            return resolved;
         }
 
         return null;
