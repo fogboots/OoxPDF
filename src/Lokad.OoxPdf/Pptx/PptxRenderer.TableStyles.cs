@@ -4,6 +4,11 @@ internal static class PptxTableStyleResolver
 {
     public static PptxSceneFillStyle ReadCellFill(PptxSceneTableStyle tableStyle, int rowIndex, int columnIndex, int rowCount, int columnCount, PptxTheme theme, PptxColorMap colorMap)
     {
+        if (tableStyle.Definition is not null)
+        {
+            return PptxTableStyleCascade.ReadCellFill(tableStyle, rowIndex, columnIndex, rowCount, columnCount, theme, colorMap);
+        }
+
         double alpha = 1d;
         if (!tableStyle.IsSupported ||
             !theme.TryResolveColor(tableStyle.Accent, colorMap, out RgbColor accent))
@@ -98,6 +103,11 @@ internal static class PptxTableStyleResolver
 
     public static PptxSceneTableCellTextStyle ReadCellTextStyle(PptxSceneTableStyle tableStyle, int rowIndex, int columnIndex, int rowCount, int columnCount, PptxTheme theme, PptxColorMap colorMap)
     {
+        if (tableStyle.Definition is not null)
+        {
+            return PptxTableStyleCascade.ReadCellTextStyle(tableStyle, rowIndex, columnIndex, rowCount, columnCount, theme, colorMap);
+        }
+
         bool bold = false;
         RgbColor? color = null;
         bool supportedStyle = tableStyle.IsSupported &&

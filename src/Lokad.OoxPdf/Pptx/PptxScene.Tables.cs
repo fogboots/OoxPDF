@@ -12,7 +12,7 @@ internal sealed partial class PptxSceneBuilder
         XElement? table = ReadTableElement(frame);
         IReadOnlyList<double> columnWidths = ReadTableColumnWidths(table);
         IReadOnlyList<double> rowHeights = ReadTableRowHeights(table);
-        PptxSceneTableStyle style = ReadTableStyle(table);
+        PptxSceneTableStyle style = ReadTableStyle(table, theme);
         return new PptxSceneTable(
             columnWidths,
             rowHeights,
@@ -53,7 +53,7 @@ internal sealed partial class PptxSceneBuilder
             return [];
         }
 
-        var rows = new List<PptxSceneTableRow>();
+        var cellRows = new List<List<PptxSceneTableCell>>();
         int rowIndex = 0;
         foreach (XElement row in table.Elements(DrawingNamespace + "tr"))
         {
@@ -66,18 +66,94 @@ internal sealed partial class PptxSceneBuilder
                 columnIndex += sceneCell.IsMergedContinuation ? 1 : sceneCell.ColumnSpan;
             }
 
-            rows.Add(new PptxSceneTableRow(cells));
+            cellRows.Add(cells);
             rowIndex++;
         }
 
-        return rows;
+        if (tableStyle.Definition is not null)
+        {
+            ApplyTableStyleBorders(cellRows, theme, colorMap, tableStyle, rowCount, columnCount);
+        }
+
+        return cellRows.Select(cells => new PptxSceneTableRow(cells)).ToArray();
     }
 
-    internal static PptxSceneTableStyle ReadTableStyle(XElement? table)
+    // Cascaded style borders fill every edge a cell leaves unspecified; an edge the cell
+    // or its neighbor sets explicitly keeps only that explicit line.
+    private static void ApplyTableStyleBorders(List<List<PptxSceneTableCell>> rows, PptxTheme theme, PptxColorMap colorMap, PptxSceneTableStyle tableStyle, int rowCount, int columnCount)
+    {
+        if (rowCount == 0 || columnCount == 0)
+        {
+            return;
+        }
+
+        PptxSceneTableCellBorders[,] styleBorders = PptxTableStyleCascade.ReadEdgeBorders(tableStyle, rowCount, columnCount, theme, colorMap);
+        var owners = new (int Row, int Cell)?[rowCount, columnCount];
+        var origins = new List<(int Row, int Column, int Cell, int ColumnSpan, int RowSpan)>();
+        for (int rowIndex = 0; rowIndex < rows.Count && rowIndex < rowCount; rowIndex++)
+        {
+            int columnIndex = 0;
+            List<PptxSceneTableCell> cells = rows[rowIndex];
+            for (int cellIndex = 0; cellIndex < cells.Count && columnIndex < columnCount; cellIndex++)
+            {
+                PptxSceneTableCell cell = cells[cellIndex];
+                if (cell.IsMergedContinuation)
+                {
+                    columnIndex++;
+                    continue;
+                }
+
+                int columnSpan = Math.Min(cell.ColumnSpan, columnCount - columnIndex);
+                int rowSpan = Math.Min(cell.RowSpan, rowCount - rowIndex);
+                for (int spanRow = rowIndex; spanRow < rowIndex + rowSpan; spanRow++)
+                {
+                    for (int spanColumn = columnIndex; spanColumn < columnIndex + columnSpan; spanColumn++)
+                    {
+                        owners[spanRow, spanColumn] = (rowIndex, cellIndex);
+                    }
+                }
+
+                origins.Add((rowIndex, columnIndex, cellIndex, columnSpan, rowSpan));
+                columnIndex += columnSpan;
+            }
+        }
+
+        PptxSceneTableCellBorders[][] explicitBorders = rows.Select(cells => cells.Select(cell => cell.Borders).ToArray()).ToArray();
+        PptxSceneTableCellBorders? ExplicitAt(int row, int column)
+        {
+            return row < 0 || column < 0 || row >= rowCount || column >= columnCount || owners[row, column] is not { } owner
+                ? null
+                : explicitBorders[owner.Row][owner.Cell];
+        }
+
+        foreach ((int row, int column, int cellIndex, int columnSpan, int rowSpan) in origins)
+        {
+            PptxSceneTableCell cell = rows[row][cellIndex];
+            PptxSceneTableCellBorders own = cell.Borders;
+            int lastRow = row + rowSpan - 1;
+            int lastColumn = column + columnSpan - 1;
+            PptxSceneTableCellBorder left = own.Left.IsSpecified || ExplicitAt(row, column - 1)?.Right.IsSpecified == true
+                ? own.Left.IsSpecified ? own.Left : new PptxSceneTableCellBorder(true, default)
+                : styleBorders[row, column].Left;
+            PptxSceneTableCellBorder right = own.Right.IsSpecified || ExplicitAt(row, lastColumn + 1)?.Left.IsSpecified == true
+                ? own.Right.IsSpecified ? own.Right : new PptxSceneTableCellBorder(true, default)
+                : styleBorders[row, lastColumn].Right;
+            PptxSceneTableCellBorder top = own.Top.IsSpecified || ExplicitAt(row - 1, column)?.Bottom.IsSpecified == true
+                ? own.Top.IsSpecified ? own.Top : new PptxSceneTableCellBorder(true, default)
+                : styleBorders[row, column].Top;
+            PptxSceneTableCellBorder bottom = own.Bottom.IsSpecified || ExplicitAt(lastRow + 1, column)?.Top.IsSpecified == true
+                ? own.Bottom.IsSpecified ? own.Bottom : new PptxSceneTableCellBorder(true, default)
+                : styleBorders[lastRow, column].Bottom;
+            rows[row][cellIndex] = cell with { Borders = new PptxSceneTableCellBorders(left, right, top, bottom) };
+        }
+    }
+
+    internal static PptxSceneTableStyle ReadTableStyle(XElement? table, PptxTheme? theme = null)
     {
         XElement? tableProperties = table?.Element(DrawingNamespace + "tblPr");
         string? styleId = (string?)tableProperties?.Element(DrawingNamespace + "tableStyleId");
         bool supported = PptxBuiltInTableStyles.TryGet(styleId, out PptxBuiltInTableStyle style);
+        XElement? definition = supported ? null : PptxTableStyleCascade.FindDefinition(styleId, theme);
         return new PptxSceneTableStyle(
             styleId,
             supported ? style.Name : string.Empty,
@@ -95,7 +171,8 @@ internal sealed partial class PptxSceneBuilder
             ReadTablePropertyFlag(tableProperties, "bandRow"),
             ReadTablePropertyFlagValue(tableProperties, "bandRow"),
             ReadTablePropertyFlag(tableProperties, "bandCol"),
-            ReadTablePropertyFlagValue(tableProperties, "bandCol"));
+            ReadTablePropertyFlagValue(tableProperties, "bandCol"),
+            definition);
     }
 
     private static bool ReadTablePropertyFlag(XElement? tableProperties, string name)
@@ -322,7 +399,7 @@ internal sealed partial class PptxSceneBuilder
             ReadTableCellBorder(cellProperties?.Element(DrawingNamespace + "lnB"), theme, colorMap));
     }
 
-    private static PptxSceneTableCellBorder ReadTableCellBorder(XElement? line, PptxTheme theme, PptxColorMap colorMap)
+    internal static PptxSceneTableCellBorder ReadTableCellBorder(XElement? line, PptxTheme theme, PptxColorMap colorMap, XElement? placeholderColorContainer = null)
     {
         if (line is null)
         {
@@ -330,7 +407,7 @@ internal sealed partial class PptxSceneBuilder
         }
 
         if (line.Element(DrawingNamespace + "noFill") is not null ||
-            !PptxColorResolver.TryReadSolidColorWithAlpha(line, theme, colorMap, out RgbColor color, out double alpha))
+            !PptxColorResolver.TryReadSolidColorWithAlpha(line, theme, colorMap, placeholderColorContainer, out RgbColor color, out double alpha))
         {
             return new PptxSceneTableCellBorder(IsSpecified: true, default);
         }

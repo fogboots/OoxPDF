@@ -173,7 +173,7 @@ internal sealed partial class PptxRenderer
     private static void EmitUnsupportedTableStyleDiagnostic(PptxRenderContext context, PptxSceneTable table)
     {
         PptxSceneTableStyle style = table.Style;
-        if (style.HasStyle && !style.IsSupported)
+        if (style.HasStyle && !style.IsSupported && style.Definition is null)
         {
             context.DiagnosticSink?.Invoke(new OoxPdfDiagnostic(
                 "PPTX_UNSUPPORTED_TABLE_STYLE",
@@ -356,7 +356,7 @@ internal sealed partial class PptxRenderer
             rowTops[rowIndex + 1] = yTop;
         }
 
-        if (!TableHasExplicitBorders(table))
+        if (!TableHasExplicitBorders(table) && tableStyle.Definition is null)
         {
             var defaultGrid = new TableDefaultGrid(
                 frameX,

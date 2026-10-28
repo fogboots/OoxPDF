@@ -29,7 +29,8 @@ internal readonly record struct PptxSceneTableStyle(
     bool BandRow,
     string BandRowValue,
     bool BandColumn,
-    string BandColumnValue)
+    string BandColumnValue,
+    XElement? Definition = null)
 {
     public bool HasStyle => StyleId is not null;
 }
@@ -100,7 +101,7 @@ internal readonly record struct PptxSceneTableCell(
     bool HasUnsupportedVerticalOverflow,
     int LeadingEmptyTextParagraphCount);
 
-internal readonly record struct PptxSceneTableCellTextStyle(RgbColor? Color, bool Bold);
+internal readonly record struct PptxSceneTableCellTextStyle(RgbColor? Color, bool Bold, bool Italic = false);
 
 internal readonly record struct PptxSceneTableCellTextInsetSources(
     PptxSceneTableCellTextInsetSource Left,

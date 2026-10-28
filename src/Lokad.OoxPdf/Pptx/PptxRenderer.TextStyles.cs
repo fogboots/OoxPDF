@@ -150,6 +150,7 @@ internal sealed partial class PptxRenderer
             (runProperties?.Attribute("b") is null && tableStyleTextStyle.Bold) ||
             (runProperties?.Attribute("b") is null && OoxXml.ParseOptionalBool(defaultRunProperties, "b"));
         bool italic = OoxXml.ParseOptionalBool(runProperties, "i") ||
+            (runProperties?.Attribute("i") is null && tableStyleTextStyle.Italic) ||
             (runProperties?.Attribute("i") is null && OoxXml.ParseOptionalBool(defaultRunProperties, "i"));
         bool hasHyperlinkClick = HasHyperlinkClick(runProperties);
         string? underlineValue = ReadUnderlineValue(runProperties, defaultRunProperties);

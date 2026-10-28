@@ -15,7 +15,8 @@ internal static class PptxRunTextAttributeReaders
         return tableStyle with
         {
             Color = HasRunTextFill(paragraphDefaults) ? null : tableStyle.Color,
-            Bold = paragraphDefaults?.Attribute("b") is null && tableStyle.Bold
+            Bold = paragraphDefaults?.Attribute("b") is null && tableStyle.Bold,
+            Italic = paragraphDefaults?.Attribute("i") is null && tableStyle.Italic
         };
     }
 

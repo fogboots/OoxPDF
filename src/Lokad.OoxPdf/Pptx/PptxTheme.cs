@@ -9,6 +9,7 @@ internal sealed class PptxTheme
 {
     private const string ThemeRelationshipType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme";
     private const string SlideMasterRelationshipType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster";
+    private const string TableStylesRelationshipType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles";
 
     private PptxTheme(
         IReadOnlyDictionary<string, RgbColor> colors,
@@ -20,7 +21,8 @@ internal sealed class PptxTheme
         string? minorComplexScriptFont,
         IReadOnlyList<XElement> fillStyles,
         IReadOnlyList<XElement> lineStyles,
-        IReadOnlyList<XElement> effectStyles)
+        IReadOnlyList<XElement> effectStyles,
+        IReadOnlyDictionary<string, XElement> tableStyles)
     {
         Colors = colors;
         MajorLatinFont = majorLatinFont;
@@ -32,6 +34,7 @@ internal sealed class PptxTheme
         FillStyles = fillStyles;
         LineStyles = lineStyles;
         EffectStyles = effectStyles;
+        TableStyles = tableStyles;
     }
 
     public IReadOnlyDictionary<string, RgbColor> Colors { get; }
@@ -54,11 +57,15 @@ internal sealed class PptxTheme
 
     public IReadOnlyList<XElement> EffectStyles { get; }
 
-    public static PptxTheme Empty { get; } = new(new Dictionary<string, RgbColor>(), null, null, null, null, null, null, [], [], []);
+    // ppt/tableStyles.xml definitions keyed by styleId (compared case-insensitively).
+    public IReadOnlyDictionary<string, XElement> TableStyles { get; }
+
+    public static PptxTheme Empty { get; } = new(new Dictionary<string, RgbColor>(), null, null, null, null, null, null, [], [], [], new Dictionary<string, XElement>());
 
     public static PptxTheme Load(OoxPackage package, string presentationPartName, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyDictionary<string, XElement> tableStyles = LoadTableStyles(package, presentationPartName, cancellationToken);
         OoxRelationship? themeRelationship = package.GetRelationships(presentationPartName, cancellationToken)
             .FirstOrDefault(r => !r.IsExternal && r.Type == ThemeRelationshipType && r.ResolvedTarget is not null);
         string? themePartName = themeRelationship?.ResolvedTarget;
@@ -73,15 +80,10 @@ internal sealed class PptxTheme
                     ?.ResolvedTarget;
         }
 
-        if (themePartName is null)
-        {
-            return Empty;
-        }
-
-        OoxPart? themePart = package.GetPart(themePartName);
+        OoxPart? themePart = themePartName is null ? null : package.GetPart(themePartName);
         if (themePart is null)
         {
-            return Empty;
+            return tableStyles.Count == 0 ? Empty : new PptxTheme(Empty.Colors, null, null, null, null, null, null, [], [], [], tableStyles);
         }
 
         XDocument document = package.LoadXml(themePart, cancellationToken);
@@ -142,7 +144,31 @@ internal sealed class PptxTheme
             .Select(element => new XElement(element))
             .ToArray() ?? [];
 
-        return new PptxTheme(colors, majorLatin, majorEastAsian, majorComplexScript, minorLatin, minorEastAsian, minorComplexScript, fillStyles, lineStyles, effectStyles);
+        return new PptxTheme(colors, majorLatin, majorEastAsian, majorComplexScript, minorLatin, minorEastAsian, minorComplexScript, fillStyles, lineStyles, effectStyles, tableStyles);
+    }
+
+    private static IReadOnlyDictionary<string, XElement> LoadTableStyles(OoxPackage package, string presentationPartName, CancellationToken cancellationToken)
+    {
+        var styles = new Dictionary<string, XElement>(StringComparer.OrdinalIgnoreCase);
+        string? tableStylesPartName = package.GetRelationships(presentationPartName, cancellationToken)
+            .FirstOrDefault(r => !r.IsExternal && r.Type == TableStylesRelationshipType && r.ResolvedTarget is not null)
+            ?.ResolvedTarget;
+        OoxPart? tableStylesPart = tableStylesPartName is null ? null : package.GetPart(tableStylesPartName);
+        if (tableStylesPart is null)
+        {
+            return styles;
+        }
+
+        XDocument document = package.LoadXml(tableStylesPart, cancellationToken);
+        foreach (XElement style in document.Root?.Elements(DrawingNamespace + "tblStyle") ?? [])
+        {
+            if ((string?)style.Attribute("styleId") is { Length: > 0 } styleId)
+            {
+                styles.TryAdd(styleId, style);
+            }
+        }
+
+        return styles;
     }
 
     public bool TryResolveColor(string schemeColor, PptxColorMap colorMap, out RgbColor color)
