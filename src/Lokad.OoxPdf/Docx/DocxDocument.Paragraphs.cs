@@ -1,3 +1,5 @@
+using Lokad.OoxPdf.Pptx;
+
 namespace Lokad.OoxPdf.Docx;
 
 internal sealed record DocxParagraph(
@@ -703,6 +705,9 @@ internal sealed record DocxInlineImage(double WidthPoints, double HeightPoints, 
     // DrawingML SVG extensions can carry an ordinary raster preview. Retain
     // that authored fallback for a missing or unparseable vector image.
     public DocxInlineImage? RasterFallback { get; init; }
+    // A VML horizontal rule (o:hr) has no picture: it paints this fill across the
+    // available width at its authored height.
+    public RgbColor? RuleFill { get; init; }
     public IReadOnlyList<DocxRevisionInfo> Revisions { get; init; } = [];
     // RV05: source run affinity for ordered inline atoms. Images read from a run
     // carry that run index; -1 means the position was not recorded.

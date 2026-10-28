@@ -4,6 +4,7 @@ using System.Text;
 using System.Xml.Linq;
 using Lokad.OoxPdf.Diagnostics;
 using Lokad.OoxPdf.Ooxml;
+using Lokad.OoxPdf.Pptx;
 using static Lokad.OoxPdf.Ooxml.OoxNamespaces;
 
 namespace Lokad.OoxPdf.Docx;
@@ -174,6 +175,19 @@ internal sealed partial class DocxReader
                 SourceTextOffsetInRun = position.Offset, SourceOrderInRun = position.Order });
         }
 
+        foreach (XElement rule in EnumerateRunOwnedDrawings(run, VmlNamespace + "rect", cancellationToken))
+        {
+            DocxInlineImage? image = ReadVmlHorizontalRule(rule, revision);
+            if (image is null)
+            {
+                continue;
+            }
+
+            var position = GetPosition(rule);
+            images.Add(image with { SourceRunIndex = sourceRunIndex,
+                SourceTextOffsetInRun = position.Offset, SourceOrderInRun = position.Order });
+        }
+
         return images;
 
         (int Offset, int Order) GetPosition(XElement target)
@@ -193,7 +207,8 @@ internal sealed partial class DocxReader
             foreach (XElement source in child.DescendantsAndSelf())
             {
                 token.ThrowIfCancellationRequested();
-                if (source.Name == WordprocessingDrawingNamespace + "inline" || source.Name == VmlNamespace + "shape")
+                if (source.Name == WordprocessingDrawingNamespace + "inline" || source.Name == VmlNamespace + "shape" ||
+                    IsVmlHorizontalRule(source))
                     positions[source] = (textOffset, order++);
             }
             textOffset += ReadRunTextChild(child).Length;
@@ -368,6 +383,49 @@ internal sealed partial class DocxReader
                 owner.Name == WordprocessingDrawingNamespace + "inline" || owner.Name == WordprocessingDrawingNamespace + "anchor"), drawing))
                 yield return element;
         }
+    }
+
+    // Only full-width rules are modeled; a percentage or explicit width keeps the
+    // unsupported-VML diagnostic.
+    private static bool IsVmlHorizontalRule(XElement element) => TryReadVmlHorizontalRuleHeight(element, out _);
+
+    private static bool TryReadVmlHorizontalRuleHeight(XElement element, out double heightPoints)
+    {
+        heightPoints = 0d;
+        if (element.Name != VmlNamespace + "rect" ||
+            (string?)element.Attribute(VmlOfficeNamespace + "hr") is not ("t" or "true") ||
+            (string?)element.Attribute(VmlOfficeNamespace + "hrpct") is not (null or "0" or "1000") ||
+            element.Elements().Any())
+        {
+            return false;
+        }
+
+        double? width = null;
+        foreach (string declaration in ((string?)element.Attribute("style") ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            string[] parts = declaration.Split(':', 2, StringSplitOptions.TrimEntries);
+            if (parts.Length == 2 && TryParseVmlLengthPoints(parts[1], out double points))
+            {
+                if (parts[0].Equals("width", StringComparison.OrdinalIgnoreCase)) width = points;
+                else if (parts[0].Equals("height", StringComparison.OrdinalIgnoreCase)) heightPoints = points;
+            }
+        }
+
+        return width is null or 0d && heightPoints > 0d;
+    }
+
+    private static DocxInlineImage? ReadVmlHorizontalRule(XElement rule, DocxRevisionInfo? revision)
+    {
+        if (!TryReadVmlHorizontalRuleHeight(rule, out double heightPoints))
+        {
+            return null;
+        }
+
+        return new DocxInlineImage(0d, heightPoints, string.Empty, null, null)
+        {
+            RuleFill = RgbColor.TryParseCssColor((string?)rule.Attribute("fillcolor"), out RgbColor fill) ? fill : new RgbColor(0xA0, 0xA0, 0xA0),
+            Revisions = RevisionList(revision)
+        };
     }
 
     private static DocxInlineImage? ReadVmlInlineImage(

@@ -685,6 +685,11 @@ internal sealed partial class DocxLayoutEngine
     // and placement. Natural static stories map their complete frame afterward.
     private static (double Width, double Height) ResolveInlineImageSize(DocxInlineImage image, double availableWidth, double scale)
     {
+        if (image.RuleFill is not null)
+        {
+            return (availableWidth, image.HeightPoints * scale);
+        }
+
         double width = Math.Min(availableWidth, image.WidthPoints * scale);
         return (width, image.HeightPoints * width / Math.Max(1d, image.WidthPoints));
     }

@@ -107,6 +107,13 @@ internal sealed partial class DocxRenderer
         ref int imageIndex, DocxFontResources fontResources, DocxMarkupContext markupContext)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (image.Image.RuleFill is { } rule)
+        {
+            graphics.SetFillRgb(rule.Red, rule.Green, rule.Blue);
+            graphics.FillRectangle(image.X, image.Y, image.Width, image.Height);
+            return;
+        }
+
         // A resolved rotation clips to the whole paragraph line frame when there is
         // one, rather than to the unrotated picture's baseline-to-top clip.
         bool rotated = TryResolveRotatedPictureFrame(image.Image, image.X, image.Y,

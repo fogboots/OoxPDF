@@ -399,6 +399,7 @@ internal sealed partial class DocxReader
     {
         return IsSupportedVmlImageElement(element, relationships) ||
             IsSupportedVmlTextBoxElement(element) ||
+            IsVmlHorizontalRule(element) ||
             IsInertVmlDefinitionElement(element);
     }
 

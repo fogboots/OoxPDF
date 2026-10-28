@@ -20,6 +20,7 @@ internal static class OoxNamespaces
     public static readonly XNamespace RelationshipsNamespace = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
     public static readonly XNamespace PackageRelationshipsNamespace = "http://schemas.openxmlformats.org/package/2006/relationships";
     public static readonly XNamespace VmlNamespace = "urn:schemas-microsoft-com:vml";
+    public static readonly XNamespace VmlOfficeNamespace = "urn:schemas-microsoft-com:office:office";
     public static readonly XNamespace Office2010WordNamespace = "http://schemas.microsoft.com/office/word/2010/wordml";
     public static readonly XNamespace WordprocessingShapeNamespace = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
     public static readonly XNamespace Office2012WordNamespace = "http://schemas.microsoft.com/office/word/2012/wordml";
