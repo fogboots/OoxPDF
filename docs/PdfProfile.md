@@ -28,7 +28,7 @@ written inline with explicit `/Length`.
 `/Identity-H` CID space for embedded fonts or WinAnsi for Type1 fallbacks (see Fonts).
 - Images arrive as `/DCTDecode` passthrough for 8-bit JPEG (including baseline
 and progressive frames) or
-`/FlateDecode` for re-encoded raster (PNG/BMP/recolored JPEG) and grayscale
+`/FlateDecode` for re-encoded raster (PNG/GIF/BMP/recolored JPEG) and grayscale
 soft masks. Color spaces are device gray, RGB, or CMYK only.
 PNG transparent-color keys at supported grayscale/RGB depths expand to the same
 soft-mask representation as equivalent explicit-alpha inputs.

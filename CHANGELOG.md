@@ -6,6 +6,12 @@
   shape and text pipeline, including text rectangles and hue/saturation color
   offsets. `PPTX_UNSUPPORTED_SMARTART` now means no readable drawing exists; the
   diagram's node text is then kept in the PDF text layer.
+- Decodes 16-bit PNG (all color types, rounded to 8 bits), first-frame GIF and EMF
+  pictures. Bitmap-only EMF decodes as a raster picture; vector EMF (paths, shapes,
+  pens/brushes, world transform, clips, DIB bitmaps) paints into the PDF graphics
+  builder. EMF text, arcs, raster operations and EMF+-only files keep their
+  unsupported-image diagnostic.
+
 - Evaluates PPTX slide-number fields from the authored sequence and numbering
   origin, preserving hidden-slide gaps independently of output-page indexes.
 - Uses paragraph reference identity for DOCX review balloons and textbox comment
