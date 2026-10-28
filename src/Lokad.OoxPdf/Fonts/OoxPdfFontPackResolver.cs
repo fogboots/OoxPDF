@@ -623,7 +623,7 @@ public sealed partial class OoxPdfFontPackResolver : IFontResolver, IFontCatalog
     {
         private readonly SemaphoreSlim gate = new(1, 1);
 
-        public string StableId => "ooxpdf-font-pack:" + packId + ":" + file.Sha256;
+        public string StableId { get; } = "ooxpdf-font-pack:" + packId + ":" + file.Sha256;
 
         public async ValueTask<ReadOnlyMemory<byte>> GetBytesAsync(CancellationToken ct)
         {

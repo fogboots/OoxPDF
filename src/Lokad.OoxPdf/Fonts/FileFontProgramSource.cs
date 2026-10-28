@@ -10,6 +10,7 @@ public sealed class FileFontProgramSource : IFontProgramSource
     internal const long MaxLocalFontBytes = 64L * 1024L * 1024L;
 
     private readonly string path;
+    private readonly string stableId;
     private readonly FontProgramCache cache;
     private readonly object sync = new();
 
@@ -22,6 +23,7 @@ public sealed class FileFontProgramSource : IFontProgramSource
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         this.path = System.IO.Path.GetFullPath(path);
+        stableId = "file:" + this.path;
         this.cache = cache;
     }
 
@@ -35,7 +37,7 @@ public sealed class FileFontProgramSource : IFontProgramSource
 
     public string Path => path;
 
-    public string StableId => "file:" + path;
+    public string StableId => stableId;
 
     public ValueTask<ReadOnlyMemory<byte>> GetBytesAsync(CancellationToken ct = default)
     {

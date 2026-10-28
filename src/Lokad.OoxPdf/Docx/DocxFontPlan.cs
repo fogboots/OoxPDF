@@ -155,6 +155,9 @@ internal sealed class DocxFontPlanTextMeasurer : IDocxTextMeasurer, IDocxLineMet
     private readonly bool resolveSourceAdvances;
     private readonly Dictionary<(string StableId, int FaceIndex, string? PrimaryFamily, bool Bold, bool Italic), IReadOnlyList<OpenTypeFont?>> candidateChains = new();
     private readonly Dictionary<DocxTextRun, DocxResolvedRunTypeface> runsByReference = new(ReferenceEqualityComparer.Instance);
+    // Layout asks for the same resolution's font many times per line; a reference lookup
+    // skips hashing the source id on every call.
+    private readonly Dictionary<FontFaceResolution, OpenTypeFont?> fontsByResolution = new(ReferenceEqualityComparer.Instance);
 
     public DocxFontPlanTextMeasurer(DocxFontPlan plan, FontFaceResolution? fallbackResolution, CancellationToken cancellationToken, IFontResolver? fontResolver = null, Dictionary<(string StableId, int FaceIndex), OpenTypeFont?>? sharedFonts = null, bool resolveSourceAdvances = false)
     {
@@ -488,14 +491,19 @@ internal sealed class DocxFontPlanTextMeasurer : IDocxTextMeasurer, IDocxLineMet
     private OpenTypeFont? LoadFont(FontFaceResolution resolution)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var key = (resolution.Source.StableId, resolution.FontFaceIndex);
-        if (fonts.TryGetValue(key, out OpenTypeFont? cached))
+        if (fontsByResolution.TryGetValue(resolution, out OpenTypeFont? known))
         {
-            return cached;
+            return known;
         }
 
-        OpenTypeFont? loaded = FontProgramLoader.Load(resolution, cancellationToken);
-        fonts[key] = loaded;
+        var key = (resolution.Source.StableId, resolution.FontFaceIndex);
+        if (!fonts.TryGetValue(key, out OpenTypeFont? loaded))
+        {
+            loaded = FontProgramLoader.Load(resolution, cancellationToken);
+            fonts[key] = loaded;
+        }
+
+        fontsByResolution[resolution] = loaded;
         return loaded;
     }
 }

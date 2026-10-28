@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Lokad.OoxPdf.Fonts;
 using Lokad.OoxPdf.Ooxml;
@@ -83,6 +84,10 @@ internal sealed partial class DocxLayoutEngine
                 ? FullHeight - MinimumPictureOverlap : FullHeight;
     }
 
+    // Table frames are rebuilt for every row placed, which measured each cell once per row
+    // of its table. A cell's height depends only on these inputs, so it is measured once.
+    private static readonly ConditionalWeakTable<DocxTableCell, Dictionary<(IDocxTextMeasurer Measurer, double Width, double TabStop, double? RowTopPadding, int? PageNumber, int? PageCount, double SpacingScale, object? MathEquations), DocxTableCellContentHeight>> measuredCellHeights = new();
+
     private static DocxTableCellContentHeight MeasureTableCellContentHeight(
         DocxTableCell cell,
         double cellWidth,
@@ -94,6 +99,34 @@ internal sealed partial class DocxLayoutEngine
         double paragraphSpacingScale,
         IReadOnlyDictionary<DocxEquation, DocxPreparedMathParagraph>? mathEquations = null,
         CancellationToken cancellationToken = default)
+    {
+        var heights = measuredCellHeights.GetOrCreateValue(cell);
+        var key = (textMeasurer, cellWidth, defaultTabStopPoints, rowTopPadding, pageNumber, pageCount, paragraphSpacingScale, (object?)mathEquations);
+        lock (heights)
+        {
+            if (heights.TryGetValue(key, out DocxTableCellContentHeight known)) return known;
+        }
+
+        DocxTableCellContentHeight measured = MeasureTableCellContentHeightCore(cell, cellWidth, textMeasurer, defaultTabStopPoints, rowTopPadding, pageNumber, pageCount, paragraphSpacingScale, mathEquations, cancellationToken);
+        lock (heights)
+        {
+            heights[key] = measured;
+        }
+
+        return measured;
+    }
+
+    private static DocxTableCellContentHeight MeasureTableCellContentHeightCore(
+        DocxTableCell cell,
+        double cellWidth,
+        IDocxTextMeasurer textMeasurer,
+        double defaultTabStopPoints,
+        double? rowTopPadding,
+        int? pageNumber,
+        int? pageCount,
+        double paragraphSpacingScale,
+        IReadOnlyDictionary<DocxEquation, DocxPreparedMathParagraph>? mathEquations,
+        CancellationToken cancellationToken)
     {
         var measureContext = new DocxTableCellLayoutContext(
             TextMeasurer: textMeasurer,
