@@ -73,6 +73,7 @@ internal sealed partial class DocxRenderer
         var mathEquations = PrepareMathEquations(document, fontResolver, fontCache, resources, cancellationToken, pageCount, deferredPageCountEquations);
         return new DocxFontResources(plan, measurer, resources, runResources, fallback, fallbackChains, fallbackFaces, fallbackFontResources)
         {
+            Charts = new DocxChartResources(new PresentationFontResolver(fontResolver)),
             MathEquations = mathEquations,
             DeferredPageCountEquations = deferredPageCountEquations
         };

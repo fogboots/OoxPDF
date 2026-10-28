@@ -7,7 +7,7 @@ namespace Lokad.OoxPdf.Pptx;
 
 internal sealed partial class PptxSceneBuilder
 {
-    private static PptxSceneChart ReadChart(
+    internal static PptxSceneChart ReadChart(
         XElement frame,
         OoxPackage package,
         PptxTheme theme,

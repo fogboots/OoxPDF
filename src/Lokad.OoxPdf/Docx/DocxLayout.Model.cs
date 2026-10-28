@@ -335,6 +335,15 @@ internal sealed record DocxRunFontResource(string Name, PdfEmbeddedFont Embedded
 
 internal sealed record DocxFallbackFontEntry(OpenTypeFont Font, DocxRunFontResource Resource);
 
+// Inline charts paint through the slide chart renderer; its fonts, fallback faces
+// and workbook models are shared by every page of the document.
+internal sealed class DocxChartResources(PresentationFontResolver fontResolver)
+{
+    public PresentationFontResolver FontResolver { get; } = fontResolver;
+    public List<PdfFontResource> Fonts { get; } = [];
+    public Dictionary<string, PptxRenderer.ChartWorkbookData?> Workbooks { get; } = new(StringComparer.Ordinal);
+}
+
 internal sealed record DocxFontResources(
     DocxFontPlan Plan,
     IDocxTextMeasurer? TextMeasurer,
@@ -346,6 +355,7 @@ internal sealed record DocxFontResources(
     IReadOnlyList<PdfFallbackFontResource> FallbackFontResources)
 {
     public IReadOnlyList<DocxEquation> DeferredPageCountEquations { get; init; } = [];
+    public DocxChartResources Charts { get; init; } = new(new PresentationFontResolver(null));
     public IReadOnlyDictionary<DocxEquation, DocxPreparedMathParagraph> MathEquations { get; init; } =
         new Dictionary<DocxEquation, DocxPreparedMathParagraph>();
 }

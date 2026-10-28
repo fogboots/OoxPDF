@@ -478,6 +478,13 @@ internal sealed partial class DocxReader
     // Solid srgb colors resolve verbatim; presets resolve through the shared table.
     // Scheme/system colors and transforms stay out (null keeps legacy borderless
     // rendering) until separately probed.
+    private static PptxTheme LoadDocumentTheme(OoxPackage package, CancellationToken cancellationToken)
+    {
+        string? documentPartName = package.GetRelationships("/", cancellationToken)
+            .FirstOrDefault(r => !r.IsExternal && r.Type == OfficeDocumentRelationshipType && r.ResolvedTarget is not null)?.ResolvedTarget;
+        return documentPartName is null ? PptxTheme.Empty : PptxTheme.Load(package, documentPartName, cancellationToken);
+    }
+
     private static DocxFloatingShape? ReadFloatingShape(XElement anchor, OoxPackage package, CancellationToken cancellationToken)
     {
         XElement? properties = anchor.Descendants(WordprocessingShapeNamespace + "spPr").FirstOrDefault();
@@ -487,9 +494,7 @@ internal sealed partial class DocxReader
         }
 
         bool isLine = (string?)properties.Element(DrawingNamespace + "prstGeom")?.Attribute("prst") != "rect";
-        string? documentPartName = package.GetRelationships("/", cancellationToken)
-            .FirstOrDefault(r => !r.IsExternal && r.Type == OfficeDocumentRelationshipType && r.ResolvedTarget is not null)?.ResolvedTarget;
-        PptxTheme theme = documentPartName is null ? PptxTheme.Empty : PptxTheme.Load(package, documentPartName, cancellationToken);
+        PptxTheme theme = LoadDocumentTheme(package, cancellationToken);
         XElement? style = anchor.Descendants(WordprocessingShapeNamespace + "style").FirstOrDefault();
         RgbColor? fill = isLine || properties.Element(DrawingNamespace + "noFill") is not null
             ? null

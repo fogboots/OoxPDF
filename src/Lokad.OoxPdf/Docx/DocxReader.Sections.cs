@@ -285,6 +285,12 @@ internal sealed partial class DocxReader
         return textBoxes;
     }
 
+    private static bool IsInlineChartDrawing(XElement drawing)
+    {
+        return drawing.Name == WordprocessingDrawingNamespace + "inline" &&
+            drawing.Element(DrawingNamespace + "graphic")?.Element(DrawingNamespace + "graphicData")?.Element(ChartNamespace + "chart") is not null;
+    }
+
     private static DocxInlineImage? ReadDrawingImage(
         XElement drawing,
         OoxPackage package,
@@ -296,6 +302,19 @@ internal sealed partial class DocxReader
         {
             return null;
         }
+        if (IsInlineChartDrawing(drawing))
+        {
+            PptxTheme theme = LoadDocumentTheme(package, cancellationToken);
+            return new DocxInlineImage(
+                OoxUnits.EmuToPoints(OoxXml.ParseRequiredLong(extent, "cx", "DOCX")),
+                OoxUnits.EmuToPoints(OoxXml.ParseRequiredLong(extent, "cy", "DOCX")),
+                string.Empty, null, null)
+            {
+                Chart = new DocxInlineChart(PptxSceneBuilder.ReadChart(drawing, package, theme, PptxColorMap.Default, relationships, cancellationToken), theme),
+                Revisions = RevisionList(revision)
+            };
+        }
+
         string? previewId = ReadDrawingImageRelationshipId(drawing, cancellationToken);
         string? vectorId = ReadDrawingSvgRelationshipId(drawing, cancellationToken);
         if (previewId is null && vectorId is null) return null;

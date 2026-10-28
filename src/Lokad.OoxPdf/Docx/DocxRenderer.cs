@@ -1264,13 +1264,16 @@ internal sealed partial class DocxRenderer
                 layoutPage.Width,
                 layoutPage.Height,
                 content,
-                fontResources.Resources.Where(resource => graphics.UsedFontResourceNames.Contains(resource.ResourceName)).ToArray(),
+                fontResources.Resources.Where(resource => graphics.UsedFontResourceNames.Contains(resource.ResourceName))
+                    .Concat(PptxRenderer.PruneUnreferencedChartFonts(content, fontResources.Charts.Fonts, cancellationToken)).ToArray(),
                 pageImages.ToArray(),
                 graphics.ExtGStates,
                 graphics.Shadings,
                 graphics.Patterns,
                 annotations,
-                fontResources.FallbackFontResources,
+                fontResources.FallbackFontResources
+                    .Concat(PdfFallbackFont.ToResources(fontResources.Charts.FontResolver.UsedFallbackFaces))
+                    .DistinctBy(resource => resource.ResourceName, StringComparer.Ordinal).ToArray(),
                 graphics.Groups,
                 graphics.ShadingPatterns);
             if (manifest) emittedPage = emittedPage with { Manifest = PageManifestBuilder.Docx(emittedPage, graphics, layoutPage, pageNumber, fontResolver) };

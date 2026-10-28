@@ -708,6 +708,7 @@ internal sealed record DocxInlineImage(double WidthPoints, double HeightPoints, 
     // A VML horizontal rule (o:hr) has no picture: it paints this fill across the
     // available width at its authored height.
     public RgbColor? RuleFill { get; init; }
+    public DocxInlineChart? Chart { get; init; }
     public IReadOnlyList<DocxRevisionInfo> Revisions { get; init; } = [];
     // RV05: source run affinity for ordered inline atoms. Images read from a run
     // carry that run index; -1 means the position was not recorded.
@@ -715,6 +716,9 @@ internal sealed record DocxInlineImage(double WidthPoints, double HeightPoints, 
     public int SourceTextOffsetInRun { get; init; }
     public int SourceOrderInRun { get; init; }
 }
+
+// An inline chart part, painted by the slide chart renderer with the document theme.
+internal sealed record DocxInlineChart(PptxSceneChart Scene, PptxTheme Theme);
 
 internal readonly record struct DocxPictureCrop(double Left, double Top, double Right, double Bottom)
 {

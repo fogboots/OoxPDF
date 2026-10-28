@@ -1533,6 +1533,7 @@ internal sealed partial class PptxRenderer
                 return true;
             case 0x0409:
             case 0x0809:
+            case 0x1009:
             case 0x0411:
                 decimalSeparator = ".";
                 groupSeparator = ",";

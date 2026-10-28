@@ -114,6 +114,14 @@ internal sealed partial class DocxRenderer
             return;
         }
 
+        if (image.Image.Chart is { } chart)
+        {
+            DocxChartResources charts = fontResources.Charts;
+            PptxRenderer.RenderEmbeddedChart(graphics, chart.Scene, chart.Theme, charts.FontResolver, charts.Fonts, charts.Workbooks,
+                imageCache, image.X, image.Y, image.Width, image.Height, diagnosticSink, cancellationToken);
+            return;
+        }
+
         // A resolved rotation clips to the whole paragraph line frame when there is
         // one, rather than to the unrotated picture's baseline-to-top clip.
         bool rotated = TryResolveRotatedPictureFrame(image.Image, image.X, image.Y,

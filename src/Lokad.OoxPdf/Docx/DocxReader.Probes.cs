@@ -105,7 +105,7 @@ internal sealed partial class DocxReader
                 Emit("DOCX_UNSUPPORTED_OLE_OBJECT", "OLE object", probePartName, "Ignored", false);
             }
             cancellationToken.ThrowIfCancellationRequested();
-            if (probeDocument.Descendants(ChartNamespace + "chart").Any())
+            if (probeDocument.Descendants(ChartNamespace + "chart").Any(chart => chart.Parent?.Parent?.Parent is not { } drawing || !IsInlineChartDrawing(drawing)))
             {
                 Emit("DOCX_UNSUPPORTED_CHART", "chart drawing payload", probePartName, "Ignored", false);
             }
