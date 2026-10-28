@@ -85,38 +85,16 @@ internal sealed partial class PptxRenderer
         {
             cancellationToken.ThrowIfCancellationRequested();
             double localY = (pixelY + 0.5d) / scaleY - shadowExtent;
-            double dy = localY < 0d ? -localY : localY > height ? localY - height : 0d;
             for (int pixelX = 0; pixelX < pixelWidth; pixelX++)
             {
                 double localX = (pixelX + 0.5d) / scaleX - shadowExtent;
-                double dx = localX < 0d ? -localX : localX > width ? localX - width : 0d;
                 int pixel = pixelY * pixelWidth + pixelX;
                 int rgbOffset = pixel * 3;
                 rgb[rgbOffset] = shadow.Color.Red;
                 rgb[rgbOffset + 1] = shadow.Color.Green;
                 rgb[rgbOffset + 2] = shadow.Color.Blue;
 
-                double distance;
-                if (preset == "ellipse")
-                {
-                    double px = (localX - width / 2d) / (width / 2d);
-                    double py = (localY - height / 2d) / (height / 2d);
-                    double normalized = Math.Sqrt(px * px + py * py);
-                    // First-order distance along the ellipse normal. Exact on
-                    // both axes and at its boundary; no additional effect planes.
-                    double gradient = Math.Sqrt(px * px / (width * width / 4d) + py * py / (height * height / 4d));
-                    distance = normalized <= 1d ? 0d : normalized * (normalized - 1d) / gradient;
-                }
-                else if (preset == "roundRect")
-                {
-                    double qx = Math.Abs(localX - width / 2d) - (width / 2d - cornerRadius);
-                    double qy = Math.Abs(localY - height / 2d) - (height / 2d - cornerRadius);
-                    double ox = Math.Max(qx, 0d), oy = Math.Max(qy, 0d);
-                    distance = Math.Max(0d, Math.Sqrt(ox * ox + oy * oy) + Math.Min(Math.Max(qx, qy), 0d) - cornerRadius);
-                }
-                else if (polygon.Length != 0)
-                    distance = DistanceToShadowPolygon(localX, height - localY, polygon);
-                else distance = Math.Sqrt(dx * dx + dy * dy);
+                double distance = DistanceToShapeEdge(preset, polygon, localX, localY, width, height, cornerRadius);
                 double t = Math.Clamp(distance / shadow.BlurRadius, 0d, 1d);
                 double falloff = (1d - t) * (1d - t);
                 alpha[pixel] = (byte)Math.Clamp((int)Math.Round(255d * falloff), 0, 255);
@@ -131,6 +109,47 @@ internal sealed partial class PptxRenderer
         graphics.DrawImage(name, shadowX, shadowY, shadowWidth, shadowHeight);
         graphics.RestoreState();
         images.Add(new PdfImageResource(name, image));
+    }
+
+    // Distance from a point in shape-local coordinates (y down) to the shape outline,
+    // zero inside it. The ellipse and rounded-rectangle forms are closed; polygon
+    // presets use their flattened outline and everything else the bounding box.
+    private static double DistanceToShapeEdge(
+        string preset,
+        ReadOnlySpan<(double X, double Y)> polygon,
+        double localX,
+        double localY,
+        double width,
+        double height,
+        double cornerRadius)
+    {
+        if (preset == "ellipse")
+        {
+            double px = (localX - width / 2d) / (width / 2d);
+            double py = (localY - height / 2d) / (height / 2d);
+            double normalized = Math.Sqrt(px * px + py * py);
+            // First-order distance along the ellipse normal. Exact on
+            // both axes and at its boundary; no additional effect planes.
+            double gradient = Math.Sqrt(px * px / (width * width / 4d) + py * py / (height * height / 4d));
+            return normalized <= 1d ? 0d : normalized * (normalized - 1d) / gradient;
+        }
+
+        if (preset == "roundRect")
+        {
+            double qx = Math.Abs(localX - width / 2d) - (width / 2d - cornerRadius);
+            double qy = Math.Abs(localY - height / 2d) - (height / 2d - cornerRadius);
+            double ox = Math.Max(qx, 0d), oy = Math.Max(qy, 0d);
+            return Math.Max(0d, Math.Sqrt(ox * ox + oy * oy) + Math.Min(Math.Max(qx, qy), 0d) - cornerRadius);
+        }
+
+        if (polygon.Length != 0)
+        {
+            return DistanceToShadowPolygon(localX, height - localY, polygon);
+        }
+
+        double dx = localX < 0d ? -localX : localX > width ? localX - width : 0d;
+        double dy = localY < 0d ? -localY : localY > height ? localY - height : 0d;
+        return Math.Sqrt(dx * dx + dy * dy);
     }
 
     private static double DistanceToShadowPolygon(double x, double y, ReadOnlySpan<(double X, double Y)> points)
@@ -182,7 +201,8 @@ internal sealed partial class PptxRenderer
 
     private static bool CanRenderGlowPreset(string preset)
     {
-        return preset == "rect";
+        return preset is "rect" or "roundRect" or "ellipse" ||
+            TryCreatePresetPolygonPoints(preset, 0d, 0d, 1d, 1d, out _);
     }
 
     private static void DrawGlow(
@@ -208,7 +228,9 @@ internal sealed partial class PptxRenderer
         double height,
         Glow glow,
         List<PdfImageResource> images,
-        ref int imageIndex)
+        ref int imageIndex,
+        string preset = "rect",
+        double cornerRadius = 0d)
     {
         if (glow.Radius <= 0d ||
             glow.Alpha <= 0d ||
@@ -227,29 +249,24 @@ internal sealed partial class PptxRenderer
         double scaleX = pixelWidth / glowWidth;
         double scaleY = pixelHeight / glowHeight;
 
+        TryCreatePresetPolygonPoints(preset, 0d, 0d, width, height, out var polygon);
+
         byte[] rgb = new byte[pixelWidth * pixelHeight * 3];
         byte[] alpha = new byte[pixelWidth * pixelHeight];
         for (int pixelY = 0; pixelY < pixelHeight; pixelY++)
         {
             double localY = (pixelY + 0.5d) / scaleY - glow.Radius;
-            double dy = localY < 0d ? -localY : localY > height ? localY - height : 0d;
             for (int pixelX = 0; pixelX < pixelWidth; pixelX++)
             {
                 double localX = (pixelX + 0.5d) / scaleX - glow.Radius;
-                double dx = localX < 0d ? -localX : localX > width ? localX - width : 0d;
                 int pixel = pixelY * pixelWidth + pixelX;
                 int rgbOffset = pixel * 3;
                 rgb[rgbOffset] = glow.Color.Red;
                 rgb[rgbOffset + 1] = glow.Color.Green;
                 rgb[rgbOffset + 2] = glow.Color.Blue;
 
-                if (dx <= 0d && dy <= 0d)
-                {
-                    continue;
-                }
-
-                double distance = Math.Sqrt(dx * dx + dy * dy);
-                if (distance >= glow.Radius)
+                double distance = DistanceToShapeEdge(preset, polygon, localX, localY, width, height, cornerRadius);
+                if (distance <= 0d || distance >= glow.Radius)
                 {
                     continue;
                 }

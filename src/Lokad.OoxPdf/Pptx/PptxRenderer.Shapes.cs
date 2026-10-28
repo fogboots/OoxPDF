@@ -243,7 +243,8 @@ internal sealed partial class PptxRenderer
             CanRenderGlowPreset(preset) &&
             images is not null)
         {
-            DrawRasterGlow(graphics, x, y, width, height, glow, images, ref imageIndex);
+            double glowCornerRadius = preset == "roundRect" ? ReadRoundRectangleRadius(shapeProperties, presetAdjustmentsOverride, width, height) : 0d;
+            DrawRasterGlow(graphics, x, y, width, height, glow, images, ref imageIndex, preset, glowCornerRadius);
         }
 
         if (hasOuterShadow &&
