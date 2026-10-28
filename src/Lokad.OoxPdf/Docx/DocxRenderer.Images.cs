@@ -24,7 +24,7 @@ internal sealed partial class DocxRenderer
     private static void RenderImage(DocxInlineImage image, double x, double y, double width, double height,
         PdfGraphicsBuilder graphics, List<PdfImageResource> pageImages, Action<OoxPdfDiagnostic>? diagnosticSink,
         int pageIndex, CancellationToken cancellationToken, Dictionary<string, PdfImageXObject?> imageCache, ref int imageIndex,
-        DocxPictureLineFrame? lineFrame = null)
+        EmfFontLookup metafileFonts, DocxPictureLineFrame? lineFrame = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         DocxPictureCrop crop = image.Crop;
@@ -46,7 +46,7 @@ internal sealed partial class DocxRenderer
         if (crop.IsEmpty && !hasFlip && !rotates)
         {
             RenderImageCore(image, x, y, width, height, graphics, pageImages, diagnosticSink,
-                pageIndex, cancellationToken, imageCache, ref imageIndex);
+                pageIndex, cancellationToken, imageCache, ref imageIndex, metafileFonts);
             return;
         }
         double sourceWidth = paintWidth / (1d - crop.Left - crop.Right);
@@ -63,7 +63,7 @@ internal sealed partial class DocxRenderer
             if (!hasFlip && !rotates)
             {
                 RenderImageCore(image, x, y, width, height, graphics, pageImages, diagnosticSink,
-                    pageIndex, cancellationToken, imageCache, ref imageIndex);
+                    pageIndex, cancellationToken, imageCache, ref imageIndex, metafileFonts);
                 return;
             }
         }
@@ -88,7 +88,7 @@ internal sealed partial class DocxRenderer
             }
             if (rotates) graphics.ClipRectangle(paintX, paintY, paintWidth, paintHeight);
             RenderImageCore(image, sourceX, sourceY, sourceWidth, sourceHeight, graphics, pageImages,
-                diagnosticSink, pageIndex, cancellationToken, imageCache, ref imageIndex);
+                diagnosticSink, pageIndex, cancellationToken, imageCache, ref imageIndex, metafileFonts);
         }
         finally { graphics.RestoreState(); }
     }
@@ -112,7 +112,8 @@ internal sealed partial class DocxRenderer
 
     private static void RenderImageCore(DocxInlineImage image, double x, double y, double width, double height,
         PdfGraphicsBuilder graphics, List<PdfImageResource> pageImages, Action<OoxPdfDiagnostic>? diagnosticSink,
-        int pageIndex, CancellationToken cancellationToken, Dictionary<string, PdfImageXObject?> imageCache, ref int imageIndex)
+        int pageIndex, CancellationToken cancellationToken, Dictionary<string, PdfImageXObject?> imageCache, ref int imageIndex,
+        EmfFontLookup metafileFonts)
     {
         if (image.Bytes is { } bytes && image.ContentType.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase))
         {
@@ -124,7 +125,7 @@ internal sealed partial class DocxRenderer
             if (image.RasterFallback is not { } preview) return;
             image = preview;
         }
-        if (TryDrawVectorEmf(image, x, y, width, height, graphics, pageImages, diagnosticSink, pageIndex, cancellationToken, imageCache, ref imageIndex)) return;
+        if (TryDrawVectorEmf(image, x, y, width, height, graphics, pageImages, diagnosticSink, pageIndex, metafileFonts, cancellationToken, imageCache, ref imageIndex)) return;
         PdfImageXObject? resource = CreateImage(image, imageCache, diagnosticSink, pageIndex, cancellationToken);
         if (resource is null) return;
         string name = "Im" + imageIndex++;
@@ -137,15 +138,15 @@ internal sealed partial class DocxRenderer
     // any other undecodable image so a repeated metafile is diagnosed once.
     private static bool TryDrawVectorEmf(DocxInlineImage image, double x, double y, double width, double height,
         PdfGraphicsBuilder graphics, List<PdfImageResource> pageImages, Action<OoxPdfDiagnostic>? diagnosticSink,
-        int pageIndex, CancellationToken cancellationToken, Dictionary<string, PdfImageXObject?> imageCache, ref int imageIndex)
+        int pageIndex, EmfFontLookup metafileFonts, CancellationToken cancellationToken, Dictionary<string, PdfImageXObject?> imageCache, ref int imageIndex)
     {
-        if (image.Bytes is not { } bytes || !OoxImageDecoder.IsEmfContentType(image.ContentType)) return false;
+        if (image.Bytes is not { } bytes || !OoxImageDecoder.IsMetafileContentType(image.ContentType)) return false;
         string? cacheKey = GetImageCacheKey(image);
         if (cacheKey is not null && imageCache.ContainsKey(cacheKey)) return false;
         int nextIndex = imageIndex;
         try
         {
-            EmfScene scene = EmfScene.Read(bytes, cancellationToken);
+            EmfScene scene = EmfScene.Read(bytes, cancellationToken, metafileFonts);
             if (scene.IsBitmapOnly) return false;
             EmfPdfWriter.Draw(graphics, scene, x, y, width, height, resource =>
             {

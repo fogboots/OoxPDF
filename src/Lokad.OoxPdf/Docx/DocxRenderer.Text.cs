@@ -133,7 +133,7 @@ internal sealed partial class DocxRenderer
             if (clipped && image.ClipBounds is { } clip) graphics.ClipRectangle(clip.X, clip.Y, clip.Width, clip.Height);
             RenderImage(image.Image, image.X, image.Y, image.Width, image.Height, graphics, pageImages,
                 diagnosticSink, image.PageIndex, cancellationToken, imageCache, ref imageIndex,
-                image.LineFrame);
+                fontResources.Charts.FontResolver.MetafileFonts(cancellationToken), image.LineFrame);
         }
         finally { if (clipped) graphics.RestoreState(); }
         // Review ink sits outside the picture clip, within its container's clip.

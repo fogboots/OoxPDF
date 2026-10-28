@@ -1,3 +1,4 @@
+using Lokad.OoxPdf.Imaging;
 using Lokad.OoxPdf.Pdf;
 
 namespace Lokad.OoxPdf.Fonts;
@@ -64,6 +65,35 @@ internal sealed class PresentationFontResolver
         }
         return ordered;
     }
+
+    // Glyph sources for metafile text: the requested family when it draws the code
+    // point, otherwise the first catalog face that does, in fallback order.
+    internal EmfFontLookup MetafileFonts(CancellationToken cancellationToken) => (familyName, bold, italic, codePoint) =>
+    {
+        FontFaceResolution primaryResolution = Resolve(new FontRequest(familyName, bold, italic));
+        OpenTypeFont? primaryFont = GetOrLoadOpenTypeFont(primaryResolution, cancellationToken);
+        if (primaryFont is not null && primaryFont.MapCodePoint(codePoint) != 0)
+        {
+            return new EmfGlyphFont(primaryFont, bold && !primaryResolution.Bold, italic && !primaryResolution.Italic);
+        }
+
+        foreach (FontFaceResolution resolution in GetFallbackFonts(bold, italic))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (IsPrimaryProgram(primaryResolution, resolution) || resolution.HasCodePoint?.Invoke(codePoint) == false)
+            {
+                continue;
+            }
+
+            OpenTypeFont? font = GetOrLoadOpenTypeFont(resolution, cancellationToken, fromCatalog: true);
+            if (font is not null && font.MapCodePoint(codePoint) != 0)
+            {
+                return new EmfGlyphFont(font, bold && !resolution.Bold, italic && !resolution.Italic);
+            }
+        }
+
+        return null;
+    };
 
     internal bool IsPrimaryProgram(FontFaceResolution primaryResolution, FontFaceResolution catalogResolution) =>
         ReferenceEquals(primary, fontCatalog) &&

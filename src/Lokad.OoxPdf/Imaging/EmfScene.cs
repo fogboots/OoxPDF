@@ -2,12 +2,15 @@ namespace Lokad.OoxPdf.Imaging;
 
 // Enhanced Metafile playback into a device-space display list (MS-EMF). Records are
 // played against a GDI-style device context (mapping mode, world transform, clip,
-// pen/brush objects, path brackets) and reduced to filled/stroked paths and DIB
-// bitmaps whose coordinates are device pixels of the reference device. Anything
-// that cannot be reproduced faithfully (arcs, raster operations, regions other
-// than rectangles, text, EMF+-only files) throws NotSupportedException so the
-// caller keeps its IMAGE_UNSUPPORTED_FORMAT diagnostic. EMF+ dual files are
-// rendered from their EMF records and the EMF+ comments are ignored.
+// pen/brush/font objects, path brackets) and reduced to filled/stroked paths and DIB
+// bitmaps whose coordinates are device pixels of the reference device. Text becomes
+// filled glyph outlines from the fonts the caller supplies. Windows Metafiles (MS-WMF)
+// play through the same device context, with the picture window as the device.
+// Anything that cannot be reproduced faithfully (arcs, raster operations, regions
+// other than rectangles, glyph-index text, characters no installed font draws,
+// EMF+-only files) throws NotSupportedException so the caller keeps its
+// IMAGE_UNSUPPORTED_FORMAT diagnostic. EMF+ dual files are rendered from their EMF
+// records and the EMF+ comments are ignored.
 
 internal readonly record struct EmfMatrix(double A, double B, double C, double D, double E, double F)
 {
@@ -81,9 +84,10 @@ internal sealed class EmfBitmapOp : EmfOp
     public required int SrcHeight { get; init; }
 }
 
-internal sealed class EmfScene
+internal sealed partial class EmfScene
 {
     private const uint SignatureValue = 0x464D4520u;
+    private const uint WmfPlaceableKey = 0x9AC6CDD7u;
 
     private EmfScene(byte[] data, double frameLeft, double frameTop, double frameWidth, double frameHeight, List<EmfOp> ops)
     {
@@ -117,16 +121,27 @@ internal sealed class EmfScene
         return bytes.Length >= 88 && U32(bytes, 0) == 1u && U32(bytes, 40) == SignatureValue;
     }
 
-    public static EmfScene Read(byte[] data, CancellationToken cancellationToken = default)
+    public static bool IsWmf(byte[] bytes)
     {
-        if (!IsEmf(data))
+        int header = bytes.Length >= 22 && U32(bytes, 0) == WmfPlaceableKey ? 22 : 0;
+        return bytes.Length >= header + 18 &&
+            (bytes[header] | (bytes[header + 1] << 8)) is 1 or 2 &&
+            (bytes[header + 2] | (bytes[header + 3] << 8)) == 9;
+    }
+
+    // fonts draws text records; without it a metafile with text is not supported.
+    public static EmfScene Read(byte[] data, CancellationToken cancellationToken = default, EmfFontLookup? fonts = null)
+    {
+        bool wmf = !IsEmf(data) && IsWmf(data);
+        if (!wmf && !IsEmf(data))
         {
-            throw new InvalidDataException("Data is not an EMF image.");
+            throw new InvalidDataException("Data is not an EMF or WMF image.");
         }
 
         try
         {
-            return new EmfPlayer(data, cancellationToken).Play();
+            var player = new EmfPlayer(data, cancellationToken, fonts);
+            return wmf ? player.PlayWmf() : player.Play();
         }
         catch (Exception ex) when (ex is ArgumentException or IndexOutOfRangeException or OverflowException)
         {
@@ -255,6 +270,11 @@ internal sealed class EmfScene
         public int Rop2 = 13;
         public double MiterLimit = 10d;
         public EmfClip? Clip;
+        public FontObject? Font;
+        public uint TextColor;
+        public uint BkColor = 0x00FFFFFFu;
+        public int BkMode = 2;
+        public int TextAlign;
 
         public DeviceContext Clone() => (DeviceContext)MemberwiseClone();
     }
@@ -262,7 +282,7 @@ internal sealed class EmfScene
     private static readonly PenObject BlackPen = new(false, 0u, 0d, 0, 1, 1, false, null);
     private static readonly BrushObject WhiteBrush = new(false, 0x00FFFFFFu, null);
 
-    private sealed class EmfPlayer(byte[] data, CancellationToken cancellationToken)
+    private sealed partial class EmfPlayer(byte[] data, CancellationToken cancellationToken, EmfFontLookup? fonts)
     {
         private readonly List<EmfOp> ops = [];
         private readonly Dictionary<int, object> objects = [];
@@ -277,6 +297,9 @@ internal sealed class EmfScene
         private bool figureOpen;
         private double figureStartX, figureStartY;
         private bool emfPlusOnly;
+        // Device width of a cosmetic (zero or one unit) pen and the narrowest wide pen.
+        private double cosmeticPenWidth = 1d, minimumPenWidth = 1d;
+        private double frameLeft, frameTop, frameWidth, frameHeight;
 
         public EmfScene Play()
         {
@@ -303,6 +326,8 @@ internal sealed class EmfScene
             {
                 throw new InvalidDataException("EMF frame is not usable.");
             }
+
+            (this.frameLeft, this.frameTop, this.frameWidth, this.frameHeight) = (frameLeft, frameTop, frameWidth, frameHeight);
 
             int position = U32Int(4);
             int count = 0;
@@ -389,6 +414,12 @@ internal sealed class EmfScene
                 case 30: // EMR_INTERSECTCLIPRECT
                     PushClip(MapToDevice(RectanglePath(I32(p + 8), I32(p + 12), I32(p + 16), I32(p + 20))), evenOdd: false);
                     break;
+                case 29: ExcludeClipRectangle(I32(p + 8), I32(p + 12), I32(p + 16), I32(p + 20)); break; // EMR_EXCLUDECLIPRECT
+                case 18: dc.BkMode = I32(p + 8); break;
+                case 22: dc.TextAlign = I32(p + 8); break;
+                case 24: dc.TextColor = (uint)I32(p + 8); break;
+                case 25: dc.BkColor = (uint)I32(p + 8); break;
+                case 82: CreateFont(p, size); break;
                 case 75: ExtSelectClipRegion(p); break;
                 case 3: PolyPoints(p, size, wide: true, EmfPolyKind.Polygon); break;
                 case 4: PolyPoints(p, size, wide: true, EmfPolyKind.Polyline); break;
@@ -410,14 +441,15 @@ internal sealed class EmfScene
                 case 81: StretchDibits(p); break;
                 case 76: BitBlt(p, stretch: false); break;
                 case 77: BitBlt(p, stretch: true); break;
-                case 84: throw new NotSupportedException("EMF text records (EMR_EXTTEXTOUTW) are not supported.");
+                case 83: ExtTextOut(p, size, wide: false); break;
+                case 84: ExtTextOut(p, size, wide: true); break;
                 case 93: case 94:
                     objects[I32(p + 8)] = new BrushObject(false, 0u, "pattern brushes");
                     break;
-                case 1: case 13: case 16: case 18: case 21: case 22: case 23: case 24: case 25: case 28: case 48: case 49: case 50: case 51: case 52:
-                case 57: case 82: case 98: case 99: case 100: case 101: case 109: case 111: case 112: case 113: case 115: case 119: case 120:
-                    // Header, brush origin, background/text state, fonts (only text records use them),
-                    // palette plumbing, ICM and layout: none changes the geometry or colors this player paints.
+                case 1: case 13: case 16: case 21: case 23: case 28: case 48: case 49: case 50: case 51: case 52:
+                case 57: case 98: case 99: case 100: case 101: case 109: case 111: case 112: case 113: case 115: case 119: case 120:
+                    // Header, brush origin, stretch mode, color adjustment, palette plumbing, ICM and
+                    // layout: none changes the geometry or colors this player paints.
                     break;
                 default:
                     throw new NotSupportedException($"EMF record type {type} is not supported.");
@@ -516,6 +548,7 @@ internal sealed class EmfScene
                     case 6: dc.Pen = new PenObject(false, 0x00FFFFFFu, 0d, 0, 1, 1, false, null); break;
                     case 7: dc.Pen = BlackPen; break;
                     case 8: dc.Pen = new PenObject(true, 0u, 0d, 5, 1, 1, false, null); break;
+                    case >= 10 and <= 17 and not 15: dc.Font = null; break; // stock fonts draw with the device font
                     case 18: dc.Brush = WhiteBrush; break; // DC_BRUSH keeps its white default
                     case 19: dc.Pen = BlackPen; break; // DC_PEN keeps its black default
                 }
@@ -523,16 +556,19 @@ internal sealed class EmfScene
                 return;
             }
 
-            if (objects.TryGetValue(handle, out object? selected) && selected is PenObject or BrushObject)
+            if (objects.TryGetValue(handle, out object? selected))
             {
-                if (selected is PenObject)
-                {
-                    dc.Pen = selected;
-                }
-                else
-                {
-                    dc.Brush = selected;
-                }
+                Select(selected);
+            }
+        }
+
+        private void Select(object selected)
+        {
+            switch (selected)
+            {
+                case PenObject: dc.Pen = selected; break;
+                case BrushObject: dc.Brush = selected; break;
+                case FontObject font: dc.Font = font; break;
             }
         }
 
@@ -599,7 +635,7 @@ internal sealed class EmfScene
             RequireCopyRop();
             double scale = LogicalToDevice().ScaleFactor;
             // Cosmetic and zero-width pens are one device pixel wide.
-            double width = pen.Geometric || pen.Width > 1d ? Math.Max(pen.Width * scale, 1d) : 1d;
+            double width = pen.Geometric || pen.Width > 1d ? Math.Max(pen.Width * scale, minimumPenWidth) : cosmeticPenWidth;
             double[]? dash = pen.Style switch
             {
                 1 => [3d * width, width],

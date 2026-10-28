@@ -16,11 +16,12 @@ internal sealed partial class PptxRenderer
         Dictionary<string, PdfImageXObject?>? imageCache,
         Action<OoxPdfDiagnostic>? diagnosticSink,
         int slideIndex,
+        EmfFontLookup metafileFonts,
         CancellationToken cancellationToken,
         out bool failed)
     {
         failed = false;
-        if (!OoxImageDecoder.IsEmfContentType(imageResource.ContentType) || !IsNoImageRecolor(recolor))
+        if (!OoxImageDecoder.IsMetafileContentType(imageResource.ContentType) || !IsNoImageRecolor(recolor))
         {
             return null;
         }
@@ -34,7 +35,7 @@ internal sealed partial class PptxRenderer
 
         try
         {
-            EmfScene scene = EmfScene.Read(imageResource.Bytes, cancellationToken);
+            EmfScene scene = EmfScene.Read(imageResource.Bytes, cancellationToken, metafileFonts);
             return scene.IsBitmapOnly ? null : scene;
         }
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
@@ -67,6 +68,7 @@ internal sealed partial class PptxRenderer
         List<PdfImageResource> images,
         ref int index,
         string partName,
+        string contentType,
         Action<OoxPdfDiagnostic>? diagnosticSink,
         int slideIndex,
         CancellationToken cancellationToken)
@@ -91,11 +93,11 @@ internal sealed partial class PptxRenderer
             diagnosticSink?.Invoke(new OoxPdfDiagnostic(
                 "IMAGE_UNSUPPORTED_FORMAT",
                 OoxPdfSeverity.Error,
-                $"Image 'image/x-emf' could not be rendered and was ignored: {ex.Message}",
+                $"Image '{contentType}' could not be rendered and was ignored: {ex.Message}",
                 partName,
                 PageIndex: null,
                 SlideIndex: slideIndex,
-                Feature: "image/x-emf",
+                Feature: contentType,
                 Fallback: "Ignored"));
         }
 

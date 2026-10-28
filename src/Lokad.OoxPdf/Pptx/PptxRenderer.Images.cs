@@ -53,6 +53,7 @@ internal sealed partial class PptxRenderer
             ToLineStyle(picture.Picture.Line),
             ToOuterShadow(picture.Picture.OuterShadow),
             picture.Picture,
+            context.FontResolver.MetafileFonts(context.CancellationToken),
             context.CancellationToken);
     }
 
@@ -75,6 +76,7 @@ internal sealed partial class PptxRenderer
         LineStyle line,
         OuterShadow? outerShadow,
         PptxScenePicture geometry,
+        EmfFontLookup metafileFonts,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -118,7 +120,7 @@ internal sealed partial class PptxRenderer
 
         // Metafiles that are more than one picture-sized bitmap are drawn as vectors;
         // bitmap-only EMF shares the raster pipeline below.
-        EmfScene? emf = TryReadVectorEmf(imageResource, recolor, imageCache, diagnosticSink, slideIndex, cancellationToken, out bool emfFailed);
+        EmfScene? emf = TryReadVectorEmf(imageResource, recolor, imageCache, diagnosticSink, slideIndex, metafileFonts, cancellationToken, out bool emfFailed);
         if (emfFailed)
         {
             return;
@@ -236,7 +238,7 @@ internal sealed partial class PptxRenderer
         graphics.ClipRectangleEvenOdd(clipX, clipY, clipWidth, clipHeight);
         if (emf is not null)
         {
-            DrawEmfPicture(graphics, emf, imageX, imageY, imageWidth, imageHeight, crop, images, ref index, imageResource.PartName, diagnosticSink, slideIndex, cancellationToken);
+            DrawEmfPicture(graphics, emf, imageX, imageY, imageWidth, imageHeight, crop, images, ref index, imageResource.PartName, imageResource.ContentType, diagnosticSink, slideIndex, cancellationToken);
         }
         else if (crop.IsEmpty)
         {

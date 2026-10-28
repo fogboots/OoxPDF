@@ -193,7 +193,8 @@ internal sealed partial class DocxRenderer
         if (drawing.Drawing.Image is { } image)
         {
             RenderImage(image, placedX, placedTop - height, width, height, graphics, pageImages,
-                diagnosticSink, drawing.AnchorPageIndex ?? 0, cancellationToken, imageCache, ref imageIndex);
+                diagnosticSink, drawing.AnchorPageIndex ?? 0, cancellationToken, imageCache, ref imageIndex,
+                fontResources.Charts.FontResolver.MetafileFonts(cancellationToken));
         }
 
         if (drawing.TextBoxLayout is { } textBoxLayout)

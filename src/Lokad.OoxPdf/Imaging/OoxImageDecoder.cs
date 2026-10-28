@@ -4,7 +4,7 @@ namespace Lokad.OoxPdf.Imaging;
 
 /// <summary>
 /// Shared Office content-image decoding (D02). JPEG passes through as DCTDecode;
-/// PNG, GIF, BMP, TIFF and bitmap-only EMF decode to RGB(A) pixels. A caller-supplied recolor map covers the
+/// PNG, GIF, BMP, TIFF and bitmap-only EMF/WMF decode to RGB(A) pixels. A caller-supplied recolor map covers the
 /// PPTX recolor case; DOCX passes the identity. Per-format diagnostics (with
 /// page/slide location and severity) and PPTX crop/recolor policy stay in the
 /// renderers. Throws <see cref="InvalidDataException"/> for corrupt data and
@@ -30,13 +30,15 @@ internal static class OoxImageDecoder
     public static bool IsGifContentType(string contentType) =>
         contentType.Equals("image/gif", StringComparison.OrdinalIgnoreCase);
 
-    public static bool IsEmfContentType(string contentType) =>
+    public static bool IsMetafileContentType(string contentType) =>
         contentType.Equals("image/x-emf", StringComparison.OrdinalIgnoreCase) ||
-        contentType.Equals("image/emf", StringComparison.OrdinalIgnoreCase);
+        contentType.Equals("image/emf", StringComparison.OrdinalIgnoreCase) ||
+        contentType.Equals("image/x-wmf", StringComparison.OrdinalIgnoreCase) ||
+        contentType.Equals("image/wmf", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsSupportedContentType(string contentType) =>
         IsJpegContentType(contentType) || IsPngContentType(contentType) || IsBmpContentType(contentType) || IsTiffContentType(contentType) ||
-        IsGifContentType(contentType) || IsEmfContentType(contentType);
+        IsGifContentType(contentType) || IsMetafileContentType(contentType);
 
     public static PdfImageXObject Decode(string contentType, byte[] bytes, Func<byte[], byte[]> recolorRgb, CancellationToken cancellationToken = default)
     {
@@ -71,9 +73,9 @@ internal static class OoxImageDecoder
             return GifImage.ReadOwned(bytes, cancellationToken);
         }
 
-        // Only bitmap-only metafiles reduce to pixels; vector EMF content is drawn by
-        // the renderers through EmfScene and EmfPdfWriter.
-        if (IsEmfContentType(contentType))
+        // Only bitmap-only metafiles reduce to pixels; vector EMF and WMF content is
+        // drawn by the renderers through EmfScene and EmfPdfWriter.
+        if (IsMetafileContentType(contentType))
         {
             return EmfScene.Read(bytes, cancellationToken).DecodeSingleBitmap(cancellationToken);
         }
