@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Xml.Linq;
 using Lokad.OoxPdf.Ooxml;
+using Lokad.OoxPdf.Pdf;
 using static Lokad.OoxPdf.Ooxml.OoxNamespaces;
 
 namespace Lokad.OoxPdf.Pptx;
@@ -87,7 +88,7 @@ internal sealed partial class PptxSceneBuilder
             return false;
         }
 
-        if (preset is null || !IsSupportedDiagonalPatternFill(preset))
+        if (preset is null || !(IsSupportedDiagonalPatternFill(preset) || OfficePatternBitmaps.TryGet(preset, out _)))
         {
             fill = new PptxScenePatternFill(false, true, true, preset ?? string.Empty, default, default, 1d);
             return false;

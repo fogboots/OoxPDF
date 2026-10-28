@@ -501,8 +501,9 @@ internal sealed partial class PptxRenderer
                     try
                     {
                         using DecodedPixels recolorSource = OoxImageDecoder.DecodePixelsOwned(contentType, bytes, cancellationToken);
-                        byte[] rgb = ApplyImageRecolor(recolorSource.Rgb, recolor, cancellationToken);
-                        return PdfImageXObject.RgbPng(recolorSource.Width, recolorSource.Height, rgb, alpha: null);
+                        byte[]? jpegAlpha = recolorSource.Alpha;
+                        byte[] rgb = ApplyImageRecolor(recolorSource.Rgb, ref jpegAlpha, recolor, cancellationToken);
+                        return PdfImageXObject.RgbPng(recolorSource.Width, recolorSource.Height, rgb, jpegAlpha);
                     }
                     catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or IndexOutOfRangeException)
                     {
@@ -526,8 +527,9 @@ internal sealed partial class PptxRenderer
             // unknown types throw with the same message the explicit branch used to
             // emit, so the catch below reports byte-identical diagnostics.
             using DecodedPixels decoded = OoxImageDecoder.DecodePixelsOwned(contentType, bytes, cancellationToken);
-            byte[] recoloredRgb = ApplyImageRecolor(decoded.Rgb, recolor, cancellationToken);
-            return PdfImageXObject.RgbPng(decoded.Width, decoded.Height, recoloredRgb, decoded.Alpha);
+            byte[]? decodedAlpha = decoded.Alpha;
+            byte[] recoloredRgb = ApplyImageRecolor(decoded.Rgb, ref decodedAlpha, recolor, cancellationToken);
+            return PdfImageXObject.RgbPng(decoded.Width, decoded.Height, recoloredRgb, decodedAlpha);
         }
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
         {
@@ -552,6 +554,7 @@ internal sealed partial class PptxRenderer
                 PptxSceneImageRecolorKind.Duotone => "duotone",
                 PptxSceneImageRecolorKind.Grayscale => "grayscale",
                 PptxSceneImageRecolorKind.BiLevel => "bi-level",
+                PptxSceneImageRecolorKind.ColorChange => "color change",
                 _ => "none"
             };
         }
@@ -599,16 +602,21 @@ internal sealed partial class PptxRenderer
         {
             return PdfImageXObject.RgbPng(croppedWidth, croppedHeight, croppedRgb, croppedAlpha);
         }
-        byte[] recoloredRgb = ApplyImageRecolor(croppedRgb, recolor, cancellationToken);
+        byte[] recoloredRgb = ApplyImageRecolor(croppedRgb, ref croppedAlpha, recolor, cancellationToken);
         return PdfImageXObject.RgbPng(croppedWidth, croppedHeight, recoloredRgb, croppedAlpha);
     }
 
-    private static byte[] ApplyImageRecolor(byte[] rgb, PptxSceneImageRecolor recolor, CancellationToken cancellationToken)
+    private static byte[] ApplyImageRecolor(byte[] rgb, ref byte[]? alpha, PptxSceneImageRecolor recolor, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (IsNoImageRecolor(recolor))
         {
             return rgb;
+        }
+
+        if (recolor.Kind == PptxSceneImageRecolorKind.ColorChange)
+        {
+            return ApplyImageColorChange(rgb, ref alpha, recolor, cancellationToken);
         }
 
         byte[] transformed = new byte[rgb.Length];
@@ -688,6 +696,40 @@ internal sealed partial class PptxRenderer
         }
     }
 
+    // Office replaces pixels near the source colour (the same per-channel tolerance
+    // LibreOffice applies) with the replacement colour at the replacement alpha.
+    private static byte[] ApplyImageColorChange(byte[] rgb, ref byte[]? alpha, PptxSceneImageRecolor recolor, CancellationToken cancellationToken)
+    {
+        const int Tolerance = 9;
+        byte[] changed = (byte[])rgb.Clone();
+        byte[]? changedAlpha = alpha is null ? null : (byte[])alpha.Clone();
+        double replacementAlpha = recolor.Threshold;
+        for (int i = 0; i < rgb.Length; i += 3)
+        {
+            if (i % 12288 == 0) { cancellationToken.ThrowIfCancellationRequested(); }
+            if (Math.Abs(rgb[i] - recolor.Dark.Red) > Tolerance ||
+                Math.Abs(rgb[i + 1] - recolor.Dark.Green) > Tolerance ||
+                Math.Abs(rgb[i + 2] - recolor.Dark.Blue) > Tolerance)
+            {
+                continue;
+            }
+
+            changed[i] = recolor.Light.Red;
+            changed[i + 1] = recolor.Light.Green;
+            changed[i + 2] = recolor.Light.Blue;
+            if (replacementAlpha >= 1d)
+            {
+                continue;
+            }
+
+            changedAlpha ??= Enumerable.Repeat((byte)255, rgb.Length / 3).ToArray();
+            changedAlpha[i / 3] = (byte)Math.Round(changedAlpha[i / 3] * replacementAlpha);
+        }
+
+        alpha = changedAlpha;
+        return changed;
+    }
+
     private static bool IsNoImageRecolor(PptxSceneImageRecolor recolor)
     {
         return recolor.Kind == PptxSceneImageRecolorKind.None;
@@ -701,6 +743,7 @@ internal sealed partial class PptxRenderer
             PptxSceneImageRecolorKind.Duotone => FormattableString.Invariant($"duo:{recolor.Dark.Red:X2}{recolor.Dark.Green:X2}{recolor.Dark.Blue:X2}:{recolor.Light.Red:X2}{recolor.Light.Green:X2}{recolor.Light.Blue:X2}"),
             PptxSceneImageRecolorKind.Grayscale => "gray",
             PptxSceneImageRecolorKind.BiLevel => FormattableString.Invariant($"bi:{recolor.Threshold:0.#####}"),
+            PptxSceneImageRecolorKind.ColorChange => FormattableString.Invariant($"clr:{recolor.Dark.Red:X2}{recolor.Dark.Green:X2}{recolor.Dark.Blue:X2}:{recolor.Light.Red:X2}{recolor.Light.Green:X2}{recolor.Light.Blue:X2}:{recolor.Threshold:0.#####}"),
             _ => "none"
         };
     }
