@@ -161,6 +161,23 @@ What we learned converting thousands of uploads:
 
 Every speed change produces byte-identical output on all 2,038 test fixtures. The library's design, API and test suite are upstream's; see the [upstream README](https://github.com/Lokad/OoxPDF#readme) and the [`docs/`](docs) folder for the rendering model, capabilities and diagnostics reference.
 
+## To do
+
+Built and committed, still being checked before it lands here:
+
+- **Color transforms to spec.** Tint and shade in linear RGB, `lumMod` and `lumOff` on HSL lightness, `satMod` applied. This changes colors on a lot of real decks (276 of 958 pages in our sample), so it gets a full visual review first.
+- **Compound lines.** Double, thick-thin, thin-thick and triple outlines on shapes, connectors and table borders.
+- **Table backgrounds** drawn under the cells, and more of PowerPoint's built-in table styles.
+- **Every preset shape.** All 187 DrawingML presets get a definition, so bent and curved connectors stop falling back to rectangles. Custom-geometry arcs use the right angles.
+- **Vertical East Asian text** in ordinary text boxes, with upright CJK characters.
+- **Theme effects.** Shadows and glow inherited from the theme's effect styles, blurred outer shadows on rounded and polygon shapes, and text shadows.
+
+Not started:
+
+- VML drawings in Word files, and full Word equation rendering.
+- Theme gradient fills referenced by shape style.
+- Inner shadow, soft edge and reflection.
+
 ## License
 
 MIT, like upstream. Credit for the renderer goes to [Lokad](https://github.com/Lokad/OoxPDF). Thirteen of the 8x8 pattern tiles (pct5, pct10, pct20, dashHorz, lgConfetti, horzBrick, zigZag, diagBrick, sphere, weave, dotGrid, divot, shingle) match the Office tiles in LibreOffice's pattern palette (MPL 2.0). Fonts are not included; install them under their own licenses.
