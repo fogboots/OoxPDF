@@ -492,14 +492,24 @@ internal sealed partial class DocxReader
             (string?)indent?.Attribute(WordprocessingNamespace + "right");
     }
 
+    // Word saves the twips equivalent of a character-unit indent beside it, so only a
+    // nonzero character unit without that twips value is left unresolved.
     private static bool HasCharacterUnitIndent(XElement indent)
     {
-        return indent.Attribute(WordprocessingNamespace + "leftChars") is not null ||
-            indent.Attribute(WordprocessingNamespace + "rightChars") is not null ||
-            indent.Attribute(WordprocessingNamespace + "startChars") is not null ||
-            indent.Attribute(WordprocessingNamespace + "endChars") is not null ||
-            indent.Attribute(WordprocessingNamespace + "firstLineChars") is not null ||
-            indent.Attribute(WordprocessingNamespace + "hangingChars") is not null;
+        return Unresolved("leftChars", "left", "start") ||
+            Unresolved("rightChars", "right", "end") ||
+            Unresolved("startChars", "start", "left") ||
+            Unresolved("endChars", "end", "right") ||
+            Unresolved("firstLineChars", "firstLine", "firstLine") ||
+            Unresolved("hangingChars", "hanging", "hanging");
+
+        bool Unresolved(string characters, string twips, string alternateTwips)
+        {
+            return (string?)indent.Attribute(WordprocessingNamespace + characters) is { } value &&
+                value.Trim() != "0" &&
+                indent.Attribute(WordprocessingNamespace + twips) is null &&
+                indent.Attribute(WordprocessingNamespace + alternateTwips) is null;
+        }
     }
 
     private static bool HasUnsupportedNumberingIndent(XElement level)

@@ -466,7 +466,8 @@ internal sealed partial class DocxReader
             (string?)textBoxBodyProperties?.Attribute("rIns"),
             (string?)textBoxBodyProperties?.Attribute("bIns"),
             TextBoxStrokeWidthEmuValue: textBoxStrokeWidthEmuValue,
-            TextBoxStrokeColorHex: textBoxStrokeColorHex)
+            TextBoxStrokeColorHex: textBoxStrokeColorHex,
+            Shape: image is null && textBoxBodyElements.Count == 0 ? ReadFloatingShape(anchor, package, cancellationToken) : null)
         {
             Revisions = RevisionList(revision),
             TextBoxBodyElements = textBoxBodyElements
@@ -477,6 +478,52 @@ internal sealed partial class DocxReader
     // Solid srgb colors resolve verbatim; presets resolve through the shared table.
     // Scheme/system colors and transforms stay out (null keeps legacy borderless
     // rendering) until separately probed.
+    private static DocxFloatingShape? ReadFloatingShape(XElement anchor, OoxPackage package, CancellationToken cancellationToken)
+    {
+        XElement? properties = anchor.Descendants(WordprocessingShapeNamespace + "spPr").FirstOrDefault();
+        if (properties is null || !IsSupportedFloatingShapeGeometry(properties))
+        {
+            return null;
+        }
+
+        bool isLine = (string?)properties.Element(DrawingNamespace + "prstGeom")?.Attribute("prst") != "rect";
+        string? documentPartName = package.GetRelationships("/", cancellationToken)
+            .FirstOrDefault(r => !r.IsExternal && r.Type == OfficeDocumentRelationshipType && r.ResolvedTarget is not null)?.ResolvedTarget;
+        PptxTheme theme = documentPartName is null ? PptxTheme.Empty : PptxTheme.Load(package, documentPartName, cancellationToken);
+        XElement? style = anchor.Descendants(WordprocessingShapeNamespace + "style").FirstOrDefault();
+        RgbColor? fill = isLine || properties.Element(DrawingNamespace + "noFill") is not null
+            ? null
+            : ReadShapeColor(properties.Element(DrawingNamespace + "solidFill") ?? StyleReference("fillRef"));
+        XElement? outline = properties.Element(DrawingNamespace + "ln");
+        RgbColor? line = outline?.Element(DrawingNamespace + "noFill") is not null
+            ? null
+            : ReadShapeColor(outline?.Element(DrawingNamespace + "solidFill") ?? StyleReference("lnRef"));
+        double lineWidth = long.TryParse((string?)outline?.Attribute("w"), NumberStyles.Integer, CultureInfo.InvariantCulture, out long widthEmu) && widthEmu > 0
+            ? widthEmu / 12700d
+            : 0.75d;
+        XElement? transform = properties.Element(DrawingNamespace + "xfrm");
+        return fill is null && line is null
+            ? null
+            : new DocxFloatingShape(isLine, fill, line, lineWidth, OoxXml.ReadBool(transform, "flipH"), OoxXml.ReadBool(transform, "flipV"));
+
+        // A style reference with index 0 means no fill or no line.
+        XElement? StyleReference(string name)
+        {
+            XElement? reference = style?.Element(DrawingNamespace + name);
+            return (string?)reference?.Attribute("idx") is null or "0" ? null : reference;
+        }
+
+        RgbColor? ReadShapeColor(XElement? source)
+        {
+            return source is not null && PptxColorResolver.TryReadSolidColor(source, theme, PptxColorMap.Default, out RgbColor color) ? color : null;
+        }
+    }
+
+    private static bool IsSupportedFloatingShapeGeometry(XElement shapeProperties)
+    {
+        return (string?)shapeProperties.Element(DrawingNamespace + "prstGeom")?.Attribute("prst") is "rect" or "line" or "straightConnector1";
+    }
+
     private static string? ResolveTextBoxOutlineColorHex(XElement? outline)
     {
         XElement? solidFill = outline?.Element(DrawingNamespace + "solidFill");

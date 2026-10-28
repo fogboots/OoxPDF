@@ -333,13 +333,19 @@ internal sealed partial class DocxReader
     private static bool IsUnsupportedFloatingDrawingAnchor(XElement anchor, IReadOnlyDictionary<string, OoxRelationship> relationships)
     {
         XElement? extent = anchor.Element(WordprocessingDrawingNamespace + "extent");
-        if (!HasPositiveEmuAttribute(extent, "cx") || !HasPositiveEmuAttribute(extent, "cy"))
+        bool isShape = !HasTextBoxContent(anchor) &&
+            anchor.Descendants(WordprocessingShapeNamespace + "spPr").FirstOrDefault() is { } shapeProperties &&
+            IsSupportedFloatingShapeGeometry(shapeProperties);
+        // Straight lines may be flat in one direction.
+        if (!(HasPositiveEmuAttribute(extent, "cx") && HasPositiveEmuAttribute(extent, "cy")) &&
+            !(isShape && (HasPositiveEmuAttribute(extent, "cx") || HasPositiveEmuAttribute(extent, "cy"))))
         {
             return true;
         }
 
         if (!HasSupportedFloatingDrawingImage(anchor, relationships) &&
-            !HasTextBoxContent(anchor))
+            !HasTextBoxContent(anchor) &&
+            !isShape)
         {
             return true;
         }

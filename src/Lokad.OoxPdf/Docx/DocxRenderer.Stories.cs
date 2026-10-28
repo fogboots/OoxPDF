@@ -185,6 +185,11 @@ internal sealed partial class DocxRenderer
             return;
         }
 
+        if (drawing.Drawing.Shape is { } shape)
+        {
+            RenderFloatingShape(shape, placedX, placedTop, width, height, graphics);
+        }
+
         if (drawing.Drawing.Image is { } image)
         {
             RenderImage(image, placedX, placedTop - height, width, height, graphics, pageImages,
@@ -195,6 +200,34 @@ internal sealed partial class DocxRenderer
         {
             RenderFloatingTextBox(drawing, textBoxLayout, placedX, placedTop, width, height, graphics, pageImages, fontResources, markupContext, pageNumber, pageCount, diagnosticSink, cancellationToken, imageCache, ref imageIndex, pageHeight);
         }
+    }
+
+    private static void RenderFloatingShape(DocxFloatingShape shape, double x, double top, double width, double height, PdfGraphicsBuilder graphics)
+    {
+        graphics.SaveState();
+        if (shape.Fill is { } fill)
+        {
+            graphics.SetFillRgb(fill.Red, fill.Green, fill.Blue);
+            graphics.FillRectangle(x, top - height, width, height);
+        }
+
+        if (shape.Line is { } line)
+        {
+            graphics.SetStrokeRgb(line.Red, line.Green, line.Blue);
+            graphics.SetLineWidth(shape.LineWidthPoints);
+            if (shape.IsLine)
+            {
+                graphics.MoveTo(shape.FlipHorizontal ? x + width : x, shape.FlipVertical ? top - height : top);
+                graphics.LineTo(shape.FlipHorizontal ? x : x + width, shape.FlipVertical ? top : top - height);
+                graphics.StrokeCurrentPath();
+            }
+            else
+            {
+                graphics.StrokeRectangle(x, top - height, width, height);
+            }
+        }
+
+        graphics.RestoreState();
     }
 
     private static void RenderFloatingTextBox(

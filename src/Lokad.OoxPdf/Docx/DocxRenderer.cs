@@ -1090,7 +1090,7 @@ internal sealed partial class DocxRenderer
 
     private static bool HasRenderableDrawings(IReadOnlyList<DocxFloatingDrawing> drawings)
     {
-        return drawings.Any(drawing => drawing.Image is not null || drawing.TextBoxBodyElements.Count != 0);
+        return drawings.Any(drawing => drawing.Image is not null || drawing.TextBoxBodyElements.Count != 0 || drawing.Shape is not null);
     }
 
     private static bool HasRenderableDrawings(IReadOnlyDictionary<string, IReadOnlyList<DocxFloatingDrawing>> drawingsByType)

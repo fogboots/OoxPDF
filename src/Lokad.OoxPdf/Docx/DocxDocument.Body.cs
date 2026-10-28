@@ -1,4 +1,10 @@
+using Lokad.OoxPdf.Pptx;
+
 namespace Lokad.OoxPdf.Docx;
+
+// Text-free wps shape painted in its anchor frame: a filled or outlined rectangle,
+// or a straight line across the frame diagonal.
+internal sealed record DocxFloatingShape(bool IsLine, RgbColor? Fill, RgbColor? Line, double LineWidthPoints, bool FlipHorizontal, bool FlipVertical);
 
 internal sealed record DocxFloatingDrawing(
     string? DistanceTopValue,
@@ -35,7 +41,8 @@ internal sealed record DocxFloatingDrawing(
     // RV05 floatbox frame stroking: resolved outline color hex (RRGGBB) for border
     // painting. Null keeps legacy borderless rendering (un-outlined shapes, missing or
     // unresolvable colors).
-    string? TextBoxStrokeColorHex = null)
+    string? TextBoxStrokeColorHex = null,
+    DocxFloatingShape? Shape = null)
 {
     public IReadOnlyList<DocxRevisionInfo> Revisions { get; init; } = [];
     public IReadOnlyList<DocxBodyElement> TextBoxBodyElements { get; init; } = [];
