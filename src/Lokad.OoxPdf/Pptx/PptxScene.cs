@@ -414,6 +414,11 @@ internal sealed partial class PptxSceneBuilder
                 kind = PptxSceneNodeKind.Picture;
             }
 
+            if (child.Annotation<PptxNativeMath>() is { } math && !HasResolvableBlipFill(child, package, relationships))
+            {
+                source = math.CreateLinearTextShape();
+            }
+
             XElement? nonVisualProperties = ReadNonVisualProperties(child);
             // Exclude hidden objects before their text, images, charts or group
             // children enter resource preflight and painting.
@@ -476,6 +481,14 @@ internal sealed partial class PptxSceneBuilder
         }
 
         return null;
+    }
+
+    private static bool HasResolvableBlipFill(XElement shape, OoxPackage package, IReadOnlyDictionary<string, OoxRelationship> relationships)
+    {
+        string? id = (string?)shape.Element(PresentationNamespace + "spPr")?.Element(DrawingNamespace + "blipFill")
+            ?.Element(DrawingNamespace + "blip")?.Attribute(RelationshipsNamespace + "embed");
+        return id is not null && relationships.TryGetValue(id, out OoxRelationship? relationship) && !relationship.IsExternal &&
+            relationship.ResolvedTarget is { } target && package.GetPart(target) is not null;
     }
 
     internal static XElement? ReadOlePreviewPicture(XElement graphicFrame)

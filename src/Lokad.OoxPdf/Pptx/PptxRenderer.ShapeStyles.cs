@@ -152,6 +152,51 @@ internal sealed partial class PptxRenderer
         return points.Length != 0;
     }
 
+    // Open brace and bracket outlines from the ECMA-376 preset definitions. Points
+    // are built top-down in the shape box, quarter arcs as cubic Béziers, and the
+    // left variants mirror the right ones.
+    private static bool TryAppendPresetBracketPath(PdfGraphicsBuilder graphics, XElement? shapeProperties, string preset,
+        double x, double y, double width, double height, IReadOnlyDictionary<string, double>? adjustments)
+    {
+        if (preset is not ("leftBrace" or "rightBrace" or "leftBracket" or "rightBracket") || width <= 0d || height <= 0d)
+        {
+            return false;
+        }
+
+        const double k = 0.5522847498d;
+        bool mirror = preset.StartsWith("left", StringComparison.Ordinal);
+        double ss = Math.Min(width, height);
+        double w = width, h = height;
+        if (preset.EndsWith("Bracket", StringComparison.Ordinal))
+        {
+            double ry = ss * Math.Clamp(ReadPresetGeometryGuide(shapeProperties, adjustments, "adj", 8333d), 0d, 50000d * h / ss) / 100000d;
+            MoveTo(0d, 0d);
+            CurveTo(k * w, 0d, w, ry - k * ry, w, ry);
+            LineTo(w, h - ry);
+            CurveTo(w, h - ry + k * ry, k * w, h, 0d, h);
+            return true;
+        }
+
+        double a2 = Math.Clamp(ReadPresetGeometryGuide(shapeProperties, adjustments, "adj2", 50000d), 0d, 100000d);
+        double a1 = Math.Clamp(ReadPresetGeometryGuide(shapeProperties, adjustments, "adj1", 8333d), 0d, Math.Min(a2, 100000d - a2) / 2d * h / ss);
+        double y1 = ss * a1 / 100000d, y3 = h * a2 / 100000d, hc = w / 2d, rx = w / 2d;
+        MoveTo(0d, 0d);
+        CurveTo(k * rx, 0d, hc, y1 - k * y1, hc, y1);
+        LineTo(hc, y3 - y1);
+        CurveTo(hc, y3 - y1 + k * y1, w - k * rx, y3, w, y3);
+        CurveTo(w - k * rx, y3, hc, y3 + y1 - k * y1, hc, y3 + y1);
+        LineTo(hc, h - y1);
+        CurveTo(hc, h - y1 + k * y1, k * rx, h, 0d, h);
+        return true;
+
+        double X(double u) => x + (mirror ? w - u : u);
+        double Y(double v) => y + h - v;
+        void MoveTo(double u, double v) => graphics.MoveTo(X(u), Y(v));
+        void LineTo(double u, double v) => graphics.LineTo(X(u), Y(v));
+        void CurveTo(double u1, double v1, double u2, double v2, double u3, double v3) =>
+            graphics.CurveTo(X(u1), Y(v1), X(u2), Y(v2), X(u3), Y(v3));
+    }
+
     private static (double X, double Y)[] CreateTrianglePoints(double x, double y, double width, double height)
     {
         return

@@ -29,10 +29,65 @@ internal sealed record PptxNativeMath(XElement Shape)
         }
     }
 
-    public bool TryPrepare(PresentationFontResolver resolver, string resourceName, CancellationToken token,
+    // A shape whose compatibility picture is gone keeps its equations as text: each
+    // a14:m becomes one run of linear (UnicodeMath-style) text in the math's own
+    // run formatting. The annotation stays so native layout is still tried first.
+    public XElement CreateLinearTextShape()
+    {
+        var shape = new XElement(Shape);
+        XNamespace drawing2010 = "http://schemas.microsoft.com/office/drawing/2010/main";
+        foreach (XElement math in shape.Descendants(drawing2010 + "m").ToArray())
+        {
+            XElement? properties = math.Descendants(DrawingNamespace + "rPr").FirstOrDefault();
+            math.ReplaceWith(new XElement(DrawingNamespace + "r",
+                properties is null ? null : new XElement(properties),
+                new XElement(DrawingNamespace + "t", string.Concat(math.Elements().Select(LinearText)))));
+        }
+
+        shape.AddAnnotation(this);
+        return shape;
+    }
+
+    private static string LinearText(XElement element)
+    {
+        if (element.Name.Namespace != MathNamespace || element.Name.LocalName.EndsWith("Pr", StringComparison.Ordinal))
+        {
+            return string.Empty;
+        }
+
+        return element.Name.LocalName switch
+        {
+            "t" => element.Value,
+            "f" => Group(Part("num")) + "/" + Group(Part("den")),
+            "sSup" => Part("e") + "^" + Group(Part("sup")),
+            "sSub" => Part("e") + "_" + Group(Part("sub")),
+            "sSubSup" => Part("e") + "_" + Group(Part("sub")) + "^" + Group(Part("sup")),
+            "sPre" => "_" + Group(Part("sub")) + "^" + Group(Part("sup")) + Part("e"),
+            "rad" => Part("deg") is { Length: > 0 } degree ? "√(" + degree + "&" + Part("e") + ")" : "√" + Group(Part("e")),
+            "nary" => Character("chr", "∫") + Limit("_", Part("sub")) + Limit("^", Part("sup")) + " " + Part("e"),
+            "d" => Character("begChr", "(") +
+                string.Join(Character("sepChr", "|"), element.Elements(MathNamespace + "e").Select(LinearText)) +
+                Character("endChr", ")"),
+            "func" => Part("fName") + " " + Part("e"),
+            "eqArr" => string.Join("; ", element.Elements(MathNamespace + "e").Select(LinearText)),
+            _ => string.Concat(element.Elements().Select(LinearText))
+        };
+
+        string Part(string name) => element.Element(MathNamespace + name) is { } part ? LinearText(part) : string.Empty;
+
+        string Character(string name, string fallback) =>
+            element.Elements().FirstOrDefault(e => e.Name.LocalName.EndsWith("Pr", StringComparison.Ordinal))
+                ?.Element(MathNamespace + name)?.Attribute(MathNamespace + "val")?.Value ?? fallback;
+
+        static string Group(string text) => text.Length <= 1 ? text : "(" + text + ")";
+
+        static string Limit(string marker, string text) => text.Length == 0 ? string.Empty : marker + Group(text);
+    }
+
+    public bool TryPrepare(PresentationFontResolver resolver, string resourceName, Func<XElement, RgbColor?> readFill, CancellationToken token,
         out DocxMathBox? box, out PdfFontResource? resource, out string? failure)
     {
-        try { return TryPrepareCore(resolver, resourceName, token, out box, out resource, out failure); }
+        try { return TryPrepareCore(resolver, resourceName, readFill, token, out box, out resource, out failure); }
         catch (Exception exception) when (exception is InvalidDataException or NotSupportedException or ArgumentException)
         {
             box = null; resource = null; failure = "NativeMathResourceUnavailable";
@@ -40,7 +95,7 @@ internal sealed record PptxNativeMath(XElement Shape)
         }
     }
 
-    private bool TryPrepareCore(PresentationFontResolver resolver, string resourceName, CancellationToken token,
+    private bool TryPrepareCore(PresentationFontResolver resolver, string resourceName, Func<XElement, RgbColor?> readFill, CancellationToken token,
         out DocxMathBox? box, out PdfFontResource? resource, out string? failure)
     {
         box = null; resource = null; failure = null;
@@ -66,9 +121,8 @@ internal sealed record PptxNativeMath(XElement Shape)
             string? color = null;
             if (properties.Element(DrawingNamespace + "solidFill") is { } fill)
             {
-                var srgb = fill.Element(DrawingNamespace + "srgbClr");
-                if (srgb is null || srgb.HasElements) { failure = "UnsupportedMathColor"; return false; }
-                color = (string?)srgb.Attribute("val");
+                if (readFill(fill) is not { } ink) { failure = "UnsupportedMathColor"; return false; }
+                color = $"{ink.Red:X2}{ink.Green:X2}{ink.Blue:X2}";
             }
             var parent = properties.Parent!;
             parent.AddAnnotation(new RunInk(color));

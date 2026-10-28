@@ -749,6 +749,8 @@ internal sealed partial class PptxRenderer
             graphics.StrokeRoundedRectangle(x, y, width, height, ReadRoundRectangleRadius(shapeProperties, adjustments, width, height));
         else if (TryCreatePresetPolygonPoints(preset, x, y, width, height, out (double X, double Y)[] points))
             graphics.StrokePolygon(points);
+        else if (TryAppendPresetBracketPath(graphics, shapeProperties, preset, x, y, width, height, adjustments))
+            graphics.StrokeCurrentPath();
         else graphics.StrokeRectangle(x, y, width, height);
     }
 
