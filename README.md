@@ -1,4 +1,158 @@
-# Lokad.OoxPdf
+# OoxPDF, production fork
+
+A fork of [Lokad.OoxPdf](https://github.com/Lokad/OoxPDF), the pure .NET renderer that turns `.pptx` and `.docx` files into PDF without Office or LibreOffice. This fork runs in production behind a document upload pipeline and has converted over 5,000 real-world decks and Word files. Everything here came out of that: a file rendered wrong, we found out why, and we fixed it in the library.
+
+The upstream library documentation follows below the fork notes. Everything in it still applies.
+
+## What this fork adds
+
+**Pictures and metafiles**
+- WMF pictures, drawn through the same device context as EMF.
+- EMF and WMF text drawn as glyph outlines from installed fonts, with Symbol and MT Extra mapped to Unicode.
+- Vertical `@`-font text in metafiles: CJK characters stand upright using the font's GSUB `vert`/`vrt2` alternates, as GDI draws them.
+- Metafile ANSI text decoded through the charset's Windows code page, including the double-byte ones (Shift-JIS, GBK, Big5, Wansung, Johab).
+- No-op blits, solid gradient fills and banded EMF gradients.
+- 16-bit PNG, first-frame GIF and TIFF pictures.
+- JPEG with restart intervals, plus faster Huffman decoding and IDCT. Progressive and CMYK JPEGs are passed through unchanged as DCT data and clipped to their crop.
+- Picture colour change (`clrChange`) transparency.
+
+**Shapes and fills**
+- SmartArt, drawn from the layout PowerPoint saves next to the diagram data.
+- Callouts (wedge, ellipse, cloud, border, accent and arrow families), built from the ECMA-376 preset definitions with their adjust values.
+- Pictures clipped to custom geometry instead of their rectangle.
+- Preset pattern fills drawn as 8x8 Office bitmap tiles.
+- Glow on rounded, elliptical and polygon presets.
+- Group fill alpha.
+- OLE objects drawn from their saved preview picture.
+
+**Tables**
+- Table styles read from `tableStyles.xml`, with every layer cascaded per cell: whole table, bands, first and last row and column, and corners. Tint and shade use Office's linear-light math.
+- Built-in definitions for the three styles decks most often reference without defining.
+
+**Text, math and fonts**
+- Native slide math with theme colours. When the saved fallback picture is missing, the equation stays as linear text.
+- Symbol fonts mapped to Unicode.
+- Math faces used as the last glyph fallback.
+- Master placeholder frames inherited correctly.
+- Translucent text kept extractable.
+- On Linux, Office font names resolve to their metric-compatible substitutes (see [Fonts](#fonts-matter-more-than-anything-else)).
+
+**DOCX**
+- Floating rectangles and lines, rotated pictures without a line frame, and full-width VML horizontal rules.
+- Inline charts, rendered by the slide chart renderer.
+- Indents saved in character units.
+
+**Speed**
+- Table cells are measured once instead of once per row placed. Building the table frame re-measured every cell for every row, which made long tables quadratic.
+- Font lookups no longer build and hash a new identity string on every call.
+- Cloned DOCX runs are found by value instead of by a linear scan.
+
+Every speed change was checked for byte-identical output on all 2,038 test fixtures. Every fidelity change was run against the same fixtures and each changed output was looked at.
+
+## Numbers
+
+All numbers below come from a NativeAOT build on Apple Silicon, one process per file, on a machine that was under heavy load at the time. Read the CPU numbers as upper bounds.
+
+Two table-heavy Word documents:
+
+| Document | Before | After |
+|---|---:|---:|
+| Long tables | 5.4 s | 1.3 s |
+| Medium tables | 363 ms | 50 ms |
+
+The sample: 50 real-world decks and 12 Word documents, all users' uploads.
+
+| | Median size | Peak memory (median / p90 / max) | CPU time (median / p90 / max) |
+|---|---:|---:|---:|
+| PPTX | 2.2 MB | 72 / 151 / 263 MB | 0.50 / 2.01 / 6.09 s |
+| DOCX | 2.4 MB | 59 / 98 / 128 MB | 0.10 / 0.83 / 2.24 s |
+
+A small Word document converts in about 20 ms end to end, process start included.
+
+None of the 62 files fails, and none reports missing content. The diagnostics that remain are animations and transitions, hyperlink actions, video, Word comments, one combining-mark approximation, and equations drawn from the picture PowerPoint saved with them.
+
+## Running it in production
+
+This is how we run it, and what we learned along the way.
+
+### Build NativeAOT
+
+```sh
+dotnet publish src/Lokad.OoxPdf.Cli -c Release -r linux-x64 -p:PublishAot=true -o out
+```
+
+The AOT binary starts in milliseconds and needs no .NET runtime in the image. Process start becomes a rounding error, so a process per conversion costs almost nothing.
+
+### One process per conversion
+
+Run the CLI as a child process for each file instead of calling the library inside a long-lived server.
+
+- A pathological file can only take down its own process.
+- Watch the child's resident memory (we poll every 25 ms) and kill it above a cap. We use 384 MiB; the largest file in the sample above peaked at 263 MB.
+- Kill it after a hard timeout. We use 30 s; the slowest file in the sample used about 6 s of CPU.
+- Cap the managed heap so the GC works harder before the kernel steps in:
+
+  ```sh
+  DOTNET_GCHeapHardLimit=0x10000000   # 256 MiB
+  DOTNET_GCConserveMemory=5
+  ```
+
+- Wait for the process to exit instead of polling for it. Polling adds up to one interval to every conversion.
+
+### Scale out, not up
+
+Put a semaphore in front of the child processes and size it so the slot count times the per-process memory cap fits the container. Add containers for more throughput. Because each conversion is its own process, the memory cap is per file, and one huge deck can't push the others out of memory.
+
+### Fonts matter more than anything else
+
+In our experience missing fonts cause more wrong-looking output than anything else: wrong widths reflow every line, and missing glyphs show up as boxes. On Linux the resolver reads a `Fonts/` folder in the working directory, and this fork maps Office family names to metric-compatible substitutes found there:
+
+| Office font | Substitute | Debian/Ubuntu package |
+|---|---|---|
+| Calibri, Calibri Light, Aptos | Carlito | `fonts-crosextra-carlito` |
+| Cambria | Caladea | `fonts-crosextra-caladea` |
+| Arial, Helvetica | Liberation Sans | `fonts-liberation` |
+| Times New Roman | Liberation Serif | `fonts-liberation` |
+| Courier New | Liberation Mono | `fonts-liberation` |
+| Cambria Math | STIX Two Math | from Google Fonts |
+| Wingdings, Webdings, Segoe UI Symbol | Noto Sans Symbols 2 | from Google Fonts |
+| Symbol | DejaVu Sans | `fonts-dejavu-core` |
+
+Also add Noto Emoji and `fonts-droid-fallback`. Droid Sans Fallback covers Chinese, Japanese and Korean, and it carries the vertical alternates that vertical text needs. Then link everything into the working directory:
+
+```dockerfile
+RUN mkdir -p /app/Fonts && find /usr/share/fonts -type f -name '*.ttf' -exec ln -s {} /app/Fonts/ \;
+WORKDIR /app
+```
+
+### Use diagnostics to decide when to fall back
+
+Run with `--diagnostics out.json`. Each diagnostic names what the renderer could not draw exactly. Some only change appearance: animations and transitions (meaningless in a PDF), hyperlink actions, video, and approximated equations. Others mean content is missing. We accept the first kind and send the second kind to LibreOffice. That way a fallback only runs when it would actually produce a better PDF, and the diagnostic counts tell you which feature to fix next.
+
+Keep the fallback until you have checked your own documents. A diagnostic only covers what the renderer knows it skipped, so compare pages against a reference on a real sample before you trust a new feature.
+
+## Making it faster without breaking it
+
+- **Profile real files, not fixtures.** The two big wins only showed up on large real-world documents. A sampling profiler (`dotnet-trace`, or `sample <pid>` on macOS) sorted by inclusive time points straight at them.
+- **Look for work repeated per row or per page.** Layout code that rebuilds a frame for every row placed is quadratic without looking like it. Memoize per-object measurements (`ConditionalWeakTable` works well for objects you don't own), keyed on everything the result depends on.
+- **Don't build strings on hot paths.** A font identity string built by concatenation and hashed on every lookup sat near the top of the profile. Build identities once and look up by reference first.
+- **Require byte-identical output.** Speed changes must not change pixels. `perf/hash_fixtures.py` converts every fixture, records the PDF hash, wall time and peak memory, and compares two runs:
+
+  ```sh
+  python3 perf/hash_fixtures.py out/Lokad.OoxPdf.Cli before.json
+  # make the change, rebuild
+  python3 perf/hash_fixtures.py out/Lokad.OoxPdf.Cli after.json --compare before.json
+  ```
+
+- **Time each change back to back.** On a busy machine a baseline taken while something else was running can show a 20% gain that isn't there. Ours did.
+
+## License and credits
+
+MIT, like upstream. All credit for the renderer goes to [Lokad](https://github.com/Lokad/OoxPDF); this fork adds to it. Thirteen of the 8x8 pattern tiles (pct5, pct10, pct20, dashHorz, lgConfetti, horzBrick, zigZag, diagBrick, sphere, weave, dotGrid, divot, shingle) match the Office tiles in LibreOffice's pattern palette (MPL 2.0). Fonts are not included; install them under their own licenses.
+
+---
+
+# Lokad.OoxPdf (upstream documentation)
 
 The **0.2.0-preview** candidate is prepared; publication is deferred. Read the
 [preview scope and limitations](docs/PreviewRelease.md) and
