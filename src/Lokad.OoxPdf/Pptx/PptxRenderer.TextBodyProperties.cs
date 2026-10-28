@@ -137,6 +137,7 @@ internal sealed partial class PptxRenderer
                 height * PptxTextMetricRules.EllipseTextRectInsetRatio,
                 height * PptxTextMetricRules.EllipseTextRectInsetRatio),
             "roundRect" when shapeProperties is not null => RoundRectTextRectInsets(shapeProperties, width, height),
+            _ when preset is not null && TryReadPresetTextRectInsets(preset, shapeProperties, width, height, out TextInsets presetInsets) => presetInsets,
             _ => TextInsets.Empty
         };
     }

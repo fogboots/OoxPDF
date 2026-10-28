@@ -361,7 +361,8 @@ internal sealed record PptxScenePicture(
     PptxSceneOuterShadow OuterShadow,
     string Preset,
     IReadOnlyDictionary<string, double> PresetAdjustments,
-    bool HasCustomGeometry);
+    bool HasCustomGeometry,
+    PptxSceneCustomGeometry CustomGeometry);
 
 internal sealed record PptxSceneImageResource(
     string PartName,

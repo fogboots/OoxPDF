@@ -146,7 +146,6 @@ internal sealed partial class PptxRenderer
             "rightArrow" => CreateRightArrowPoints(x, y, width, height),
             "leftRightArrow" => CreateLeftRightArrowPoints(x, y, width, height),
             "upDownArrow" => CreateUpDownArrowPoints(x, y, width, height),
-            "wedgeRectCallout" => CreateWedgeRectCalloutPoints(x, y, width, height),
             _ => []
         };
         return points.Length != 0;
@@ -537,24 +536,6 @@ internal sealed partial class PptxRenderer
             (x, y + headDepth),
             (shaftLeft, y + headDepth),
             (shaftLeft, y + height - headDepth)
-        ];
-    }
-
-    private static (double X, double Y)[] CreateWedgeRectCalloutPoints(double x, double y, double width, double height)
-    {
-        double tailLeftX = x + width / 6d;
-        double tailTipX = x + width * 7d / 24d;
-        double tailRightX = x + width * 5d / 12d;
-        double tailTipY = y - height / 8d;
-        return
-        [
-            (x, y + height),
-            (x + width, y + height),
-            (x + width, y),
-            (tailRightX, y),
-            (tailTipX, tailTipY),
-            (tailLeftX, y),
-            (x, y)
         ];
     }
 
