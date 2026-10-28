@@ -52,9 +52,11 @@ internal sealed class PresentationFontResolver
         var key = (bold, italic);
         if (!fallbackOrders.TryGetValue(key, out FontFaceResolution[]? ordered))
         {
+            // Math faces come last: they only supply characters no text face has
+            // (mathematical alphanumerics), since their metrics suit equations.
             ordered = fontCatalog.GetDiscoveredFonts()
-                .Where(f => !f.HasMathTable)
-                .OrderBy(f => f.Bold == bold ? 0 : 1000)
+                .OrderBy(f => f.HasMathTable ? 1 : 0)
+                .ThenBy(f => f.Bold == bold ? 0 : 1000)
                 .ThenBy(f => f.Italic == italic ? 0 : 1000)
                 .ThenBy(f => Math.Abs(f.WeightClass - (bold ? 700 : 400)))
                 .ThenBy(f => f.FamilyName, StringComparer.OrdinalIgnoreCase)

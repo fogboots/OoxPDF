@@ -418,6 +418,11 @@ internal sealed partial class EmfScene
         private void WmfBitmap(int p, int dib, int size, uint rop, int destX, int destY, int destWidth, int destHeight,
             int srcX, int srcY, int srcWidth, int srcHeight, int usage)
         {
+            if (rop == 0x00AA0029u)
+            {
+                return; // the destination is left unchanged
+            }
+
             if (rop != 0x00CC0020u)
             {
                 throw new NotSupportedException("WMF bitmap raster operation is not supported.");
@@ -456,6 +461,7 @@ internal sealed partial class EmfScene
                 0x00F00021u => CurrentFill(),
                 0x00000042u => 0u,
                 0x00FF0062u => 0x00FFFFFFu,
+                0x00AA0029u => null, // the destination is left unchanged
                 _ => throw new NotSupportedException("WMF bit-block transfer operation is not supported.")
             };
             if (color is { } fillColor)

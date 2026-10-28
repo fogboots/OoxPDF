@@ -439,6 +439,7 @@ internal sealed partial class EmfScene
                 case 42: Shape(EllipsePath(I32(p + 8), I32(p + 12), I32(p + 16), I32(p + 20))); break;
                 case 44: Shape(RoundRectanglePath(I32(p + 8), I32(p + 12), I32(p + 16), I32(p + 20), I32(p + 24), I32(p + 28))); break;
                 case 81: StretchDibits(p); break;
+                case 118: GradientFill(p, size); break;
                 case 76: BitBlt(p, stretch: false); break;
                 case 77: BitBlt(p, stretch: true); break;
                 case 83: ExtTextOut(p, size, wide: false); break;
@@ -1039,6 +1040,70 @@ internal sealed partial class EmfScene
             PushClip(segments, evenOdd: false);
         }
 
+        // EMR_GRADIENTFILL: vertices (x, y, 16-bit red, green, blue, alpha), then rectangles
+        // (two vertex indices) or triangles (three). Only meshes that reduce to solid
+        // fills are drawn; a shape without area draws nothing.
+        private void GradientFill(int p, int size)
+        {
+            int vertices = I32(p + 24), shapes = I32(p + 28), mode = I32(p + 32);
+            int corners = mode == 2 ? 3 : 2;
+            int mesh = p + 36 + vertices * 16;
+            if (vertices < 0 || shapes < 0 || mode is < 0 or > 2 || 36L + vertices * 16L + shapes * corners * 4L > size)
+            {
+                throw new InvalidDataException("EMF gradient fill record is truncated.");
+            }
+
+            for (int shape = 0; shape < shapes; shape++)
+            {
+                var indices = new int[corners];
+                for (int i = 0; i < corners; i++)
+                {
+                    indices[i] = I32(mesh + (shape * corners + i) * 4);
+                    if (indices[i] < 0 || indices[i] >= vertices)
+                    {
+                        throw new InvalidDataException("EMF gradient fill vertex index is out of range.");
+                    }
+                }
+
+                int Vertex(int i) => p + 36 + indices[i] * 16;
+                List<EmfSegment> logical = mode == 2
+                    ?
+                    [
+                        new(EmfSegmentKind.Move, I32(Vertex(0)), I32(Vertex(0) + 4), 0d, 0d, 0d, 0d),
+                        new(EmfSegmentKind.Line, I32(Vertex(1)), I32(Vertex(1) + 4), 0d, 0d, 0d, 0d),
+                        new(EmfSegmentKind.Line, I32(Vertex(2)), I32(Vertex(2) + 4), 0d, 0d, 0d, 0d),
+                        new(EmfSegmentKind.Close, 0d, 0d, 0d, 0d, 0d, 0d)
+                    ]
+                    : RectanglePath(I32(Vertex(0)), I32(Vertex(0) + 4), I32(Vertex(1)), I32(Vertex(1) + 4));
+                double twiceArea = 0d;
+                for (int i = 0; i + 1 < logical.Count - 1; i++)
+                {
+                    EmfSegment a = logical[i], b = logical[i + 1];
+                    twiceArea += a.X1 * b.Y1 - b.X1 * a.Y1;
+                }
+
+                twiceArea += logical[^2].X1 * logical[0].Y1 - logical[0].X1 * logical[^2].Y1;
+                if (twiceArea == 0d)
+                {
+                    continue;
+                }
+
+                uint color = GradientColor(Vertex(0));
+                for (int i = 1; i < corners; i++)
+                {
+                    if (GradientColor(Vertex(i)) != color)
+                    {
+                        throw new NotSupportedException("EMF gradient fills with changing colors are not supported.");
+                    }
+                }
+
+                ops.Add(new EmfPathOp { Segments = MapToDevice(logical), FillColor = color, Clip = dc.Clip });
+            }
+
+            uint GradientColor(int vertex) =>
+                (uint)(data[vertex + 9] | (data[vertex + 11] << 8) | (data[vertex + 13] << 16));
+        }
+
         private void StretchDibits(int p)
         {
             if (I32(p + 68) != 0x00CC0020)
@@ -1063,6 +1128,7 @@ internal sealed partial class EmfScene
                     0x00F00021 => CurrentFill(),
                     0x00000042 => 0u,
                     0x00FF0062 => 0x00FFFFFFu,
+                    0x00AA0029 => null, // the destination is left unchanged
                     _ => throw new NotSupportedException("EMF bit-block transfer operation is not supported.")
                 };
                 if (color is { } fillColor)
