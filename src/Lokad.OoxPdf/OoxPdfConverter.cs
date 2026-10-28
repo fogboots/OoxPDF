@@ -308,61 +308,12 @@ public static class OoxPdfConverter
         OoxPackage package = OoxPackage.Open(input, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var pageDiagnostics = options.PageManifestSink is null ? null : new List<OoxPdfDiagnostic>();
-        Action<OoxPdfDiagnostic>? originalSink = diagnosticSink;
-        if (pageDiagnostics is not null) diagnosticSink = diagnostic => { pageDiagnostics.Add(diagnostic); originalSink?.Invoke(diagnostic); };
-        IEnumerable<PdfPage> rendered = inputKind switch
+        return inputKind switch
         {
-            OoxPdfInputKind.Pptx => new PptxRenderer(options.FontResolver, options.PageManifestSink is not null).RenderPages(new PptxReader().Read(package, cancellationToken, diagnosticSink), package, diagnosticSink, cancellationToken),
-            OoxPdfInputKind.Docx => new DocxRenderer(options.FontResolver, options.DocxMarkupMode, options.DocxMarkupGeometryMode, options.PageManifestSink is not null).RenderBlankPages(new DocxReader().Read(package, diagnosticSink, cancellationToken, options.DocxMarkupMode), diagnosticSink, cancellationToken),
+            OoxPdfInputKind.Pptx => new PptxRenderer(options.FontResolver).RenderPages(new PptxReader().Read(package, cancellationToken, diagnosticSink), package, diagnosticSink, cancellationToken),
+            OoxPdfInputKind.Docx => new DocxRenderer(options.FontResolver, options.DocxMarkupMode, options.DocxMarkupGeometryMode).RenderBlankPages(new DocxReader().Read(package, diagnosticSink, cancellationToken, options.DocxMarkupMode), diagnosticSink, cancellationToken),
             _ => throw new NotSupportedException($"Unsupported input kind '{inputKind}'.")
         };
-        int number = 0;
-        foreach (PdfPage page in rendered)
-        {
-            number++;
-            if (options.PageManifestSink is { } sink)
-            {
-                try
-                {
-                    var entry = page.Manifest ?? PageManifestBuilder.Failed(number, inputKind == OoxPdfInputKind.Pptx ? number : null);
-                    var relevant = pageDiagnostics!.Where(d => (d.PageIndex is null || d.PageIndex == number) &&
-                        (d.SlideIndex is null || d.SlideIndex == number) &&
-                        (d.Id != "FONT_MISSING_GLYPHS" || entry.RequestedFonts.Contains(d.Feature, StringComparer.OrdinalIgnoreCase))).ToArray();
-                    var warnings = entry.Warnings.Concat(relevant.Select(d => d.Id)).Distinct().ToArray();
-                    var objects = entry.Objects.ToList();
-                    foreach (var diagnostic in relevant)
-                    {
-                        // Diagnostics about effects or fonts do not turn ordinary cards into diagrams.
-                        // Retain their codes as warnings; flag the affected semantic object when known.
-                        string? kind = diagnostic.Id switch
-                        {
-                            "IMAGE_MISSING_PART" or "IMAGE_UNSUPPORTED_FORMAT" or "DOCX_UNSUPPORTED_IMAGE_TRANSFORM" or "DOCX_UNSUPPORTED_FLOATING_DRAWING" => "picture",
-                            "DOCX_UNSUPPORTED_CHART" => "chart",
-                            "PPTX_UNSUPPORTED_SMARTART" => "smartart",
-                            "PPTX_NATIVE_EQUATION_FALLBACK" or "PPTX_APPROXIMATED_EQUATION" => "equation",
-                            "PPTX_UNSUPPORTED_OLE_OBJECT" => "ole",
-                            "PPTX_UNSUPPORTED_GRAPHIC_FRAME" or "DOCX_UNSUPPORTED_VML" => "shapes",
-                            "PPTX_UNSUPPORTED_TABLE_STYLE" => "table",
-                            _ => null
-                        };
-                        if (kind is null) continue;
-                        bool found = false;
-                        for (int i=0;i<objects.Count;i++)
-                            if (objects[i].Kind == kind) { objects[i] = objects[i] with { Fallback = true }; found = true; }
-                        // A location-free warning cannot identify the page where a skipped object belonged.
-                        // Keep it in warnings instead of inventing an object on every page of the document.
-                        if (!found && (diagnostic.PageIndex == number || diagnostic.SlideIndex == number))
-                            objects.Add(new(kind,0,false,true));
-                    }
-                    var missing = entry.MissingFonts.Concat(relevant.Where(d => d.Id == "FONT_MISSING_GLYPHS")
-                        .Select(d => d.Feature).OfType<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-                    sink(entry with { Page = number, Warnings = warnings, Objects = objects, MissingFonts = missing });
-                }
-                catch { /* Metadata is best effort and cannot abort PDF conversion. */ }
-            }
-            yield return page;
-        }
     }
 
     private static OoxPdfInputKind RequireExplicitInputKind(OoxPdfInputKind requestedKind)

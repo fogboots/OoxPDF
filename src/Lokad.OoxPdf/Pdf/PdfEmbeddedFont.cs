@@ -293,8 +293,6 @@ internal sealed class PdfEmbeddedFont
                     cancellationToken.ThrowIfCancellationRequested();
                     ushort cid = cmapEntries[cmapStart + cmapIndex].Key;
                     int codePoint = cmapEntries[cmapStart + cmapIndex].Value;
-                    if (codePoint is >= 0x1D400 and <= 0x1D7FF)
-                        codePoint = ManifestUnicode.Plain(char.ConvertFromUtf32(codePoint)).EnumerateRunes().First().Value;
                     builder.Append("<").Append(cid.ToString("X4", CultureInfo.InvariantCulture)).Append("> <");
                     if (codePoint <= 0xFFFF)
                     {
@@ -320,15 +318,6 @@ internal sealed class PdfEmbeddedFont
         builder.AppendLine("end");
         builder.AppendLine("end");
         return builder.ToString();
-    }
-
-    internal Dictionary<ushort, double> ManifestWidths()
-    {
-        var widths = new Dictionary<ushort, double>();
-        foreach (ushort glyph in UnicodeByOriginalGlyph.Keys)
-            if (TryGetCid(glyph, out ushort cid))
-                widths[cid] = Math.Round(Font.GetAdvanceWidth(glyph) * 1000d / Font.UnitsPerEm) / 1000d;
-        return widths;
     }
 
     public string BuildWidthArray(CancellationToken cancellationToken)

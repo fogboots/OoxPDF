@@ -312,7 +312,6 @@ internal sealed partial class DocxReader
             resolvedParagraph.KeepRules,
             listLabel)
         {
-            OutlineLevel = resolvedParagraph.OutlineLevel,
             Indent = resolvedParagraph.Indent,
             TabStops = resolvedParagraph.TabStops,
             SnapToGrid = resolvedParagraph.SnapToGrid,

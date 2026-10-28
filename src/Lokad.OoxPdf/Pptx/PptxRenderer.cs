@@ -13,12 +13,10 @@ namespace Lokad.OoxPdf.Pptx;
 internal sealed partial class PptxRenderer
 {
     private readonly PresentationFontResolver fontResolver;
-    private readonly bool manifest;
 
-    public PptxRenderer(IFontResolver? fontResolver, bool manifest = false)
+    public PptxRenderer(IFontResolver? fontResolver)
     {
         this.fontResolver = new PresentationFontResolver(fontResolver);
-        this.manifest = manifest;
     }
 
     // R06.3: yields pages progressively so the writer can spill content and retain
@@ -56,7 +54,7 @@ internal sealed partial class PptxRenderer
             }
 
             EmitUnsupportedFeatureDiagnostics(sceneSlide, slideXml, slide.PartName, slideIndex + 1, diagnosticSink, warnedMustUnderstandParts);
-            var graphics = new PdfGraphicsBuilder { CaptureManifestText = manifest };
+            var graphics = new PdfGraphicsBuilder();
             var textSpanMemo = new Dictionary<PptxTextSpanMemoKey, IReadOnlyList<PptxPositionedTextSpan>>(PptxTextSpanMemoKeyComparer.Instance);
             var tableFrameMemo = new Dictionary<PptxTableFrameMemoKey, TableFrameLayout?>(PptxTableFrameMemoKeyComparer.Instance);
             PptxRenderContext context = CreateRenderContext(document, theme, slide, slideXml, sceneSlide, fontResolver, imageCache, diagnosticSink, cancellationToken, chartWorkbookCache, textSpanMemo, tableFrameMemo);
@@ -101,10 +99,7 @@ internal sealed partial class PptxRenderer
             // RV11: admit the emitted content bytes before yielding, so a small
             // content budget rejects before the writer encodes or stores the page.
             OoxConversionBudget.Current?.ChargePdfContentBytes(content.Length);
-            var emittedPage = new PdfPage(context.Document.SlideWidthPoints, context.Document.SlideHeightPoints, content, renderedFonts.Resources.Concat(pageChartFonts).ToArray(), pageImages, graphics.ExtGStates.ToArray(), graphics.Shadings.ToArray(), graphics.Patterns.ToArray(), linkAnnotations, PdfFallbackFont.ToResources(fontResolver.UsedFallbackFaces), graphics.Groups.ToArray(), graphics.ShadingPatterns.ToArray());
-            if (manifest) emittedPage = emittedPage with { Manifest = PageManifestBuilder.Pptx(emittedPage, graphics, sceneSlide,
-                fontResolver, shapeTextSpans.Concat(tableTextSpans).Select(span => span.Run.FontFamily), (slide.SourceIndex ?? slide.Index)+1) };
-            yield return emittedPage;
+            yield return new PdfPage(context.Document.SlideWidthPoints, context.Document.SlideHeightPoints, content, renderedFonts.Resources.Concat(pageChartFonts).ToArray(), pageImages, graphics.ExtGStates.ToArray(), graphics.Shadings.ToArray(), graphics.Patterns.ToArray(), linkAnnotations, PdfFallbackFont.ToResources(fontResolver.UsedFallbackFaces), graphics.Groups.ToArray(), graphics.ShadingPatterns.ToArray());
         }
     }
 

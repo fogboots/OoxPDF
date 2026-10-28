@@ -24,11 +24,6 @@ internal sealed class PdfGraphicsBuilder
     private readonly Dictionary<string, int> shadingPatternIndex = new(StringComparer.Ordinal);
     private int stateDepth;
     private bool actualTextOpen;
-    public bool CaptureManifestText { get; init; }
-    private readonly List<PdfManifestTextRun> manifestText = [];
-    public IReadOnlyList<PdfManifestTextRun> ManifestText => manifestText;
-    private string? manifestActualText;
-    private bool manifestActualEmitted;
 
     public IReadOnlyList<PdfExtGStateResource> ExtGStates => extGStates;
 
@@ -492,8 +487,6 @@ internal sealed class PdfGraphicsBuilder
         builder.AppendLine("0 Tc");
         foreach (PdfFallbackGlyph glyph in glyphs)
         {
-            if (CaptureManifestText) manifestText.Add(new(fontResourceName, "", glyph.X, glyph.Y, fontSize,
-                char.ConvertFromUtf32(PdfFallbackFont.DecodeWinAnsi(glyph.Code))));
             builder.Append("1 0 0 1 ").Append(PdfDocumentWriter.FormatNumber(glyph.X)).Append(" ").Append(PdfDocumentWriter.FormatNumber(glyph.Y)).AppendLine(" Tm");
             builder.Append("<").Append(glyph.Code.ToString("X2", CultureInfo.InvariantCulture)).AppendLine("> Tj");
         }
@@ -519,11 +512,6 @@ internal sealed class PdfGraphicsBuilder
         double strokeWidth,
         int textRotationQuarterTurns = 0)
     {
-        if (CaptureManifestText && textRenderingMode != 3 && (!actualTextOpen || !manifestActualEmitted))
-        {
-            manifestText.Add(new(fontResourceName, textOperator, x, y, fontSize, manifestActualText, characterSpacing));
-            manifestActualEmitted = actualTextOpen;
-        }
         RegisterFontUse(fontResourceName);
         builder.AppendLine("BT");
         if (!TryAppendFillGray(red, green, blue))
@@ -609,13 +597,12 @@ internal sealed class PdfGraphicsBuilder
     public readonly record struct ContentMark(int ContentLength, int ExtGStateCount, int ShadingCount, int PatternCount, int StateDepth, int FontUseCount, int GroupCount, int ShadingPatternCount)
     {
         public bool ActualTextOpen { get; init; }
-        public int ManifestTextCount { get; init; }
     }
 
     public ContentMark MarkContent()
     {
         return new ContentMark(builder.Length, extGStates.Count, shadings.Count, patterns.Count, stateDepth, fontUseOrder.Count, groups.Count, shadingPatterns.Count)
-            { ActualTextOpen = actualTextOpen, ManifestTextCount = manifestText.Count };
+            { ActualTextOpen = actualTextOpen };
     }
 
     public void TruncateContent(ContentMark mark)
@@ -658,7 +645,6 @@ internal sealed class PdfGraphicsBuilder
 
         stateDepth = Math.Max(0, mark.StateDepth);
         actualTextOpen = mark.ActualTextOpen;
-        if (manifestText.Count > mark.ManifestTextCount) manifestText.RemoveRange(mark.ManifestTextCount, manifestText.Count - mark.ManifestTextCount);
         RebuildResourceIndexes();
     }
 
@@ -708,7 +694,6 @@ internal sealed class PdfGraphicsBuilder
         string hex = Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(char.ConvertFromUtf32(sourceCodePoint)));
         builder.Append("/Span << /ActualText <FEFF").Append(hex).AppendLine("> >> BDC");
         actualTextOpen = true;
-        if (CaptureManifestText) { manifestActualText = char.ConvertFromUtf32(sourceCodePoint); manifestActualEmitted = false; }
     }
 
     public void EndActualText()
@@ -716,7 +701,6 @@ internal sealed class PdfGraphicsBuilder
         if (!actualTextOpen) throw new InvalidOperationException("ActualText ends without an open span.");
         builder.AppendLine("EMC");
         actualTextOpen = false;
-        manifestActualText = null; manifestActualEmitted = false;
     }
 
     private void AppendEllipsePath(double x, double y, double width, double height)

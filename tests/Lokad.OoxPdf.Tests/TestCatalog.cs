@@ -9,7 +9,6 @@ internal static class TestCatalog
     public static IReadOnlyList<TestCase> All { get; } =
     [
         .. FromType("api", typeof(PublicApiTests)),
-        .. FromType("api", typeof(PageManifestTests)),
         .. FromType("pptx-images", typeof(TiffImageTests)),
         .. FromType("pptx-typography", typeof(PptxNativeMathTests)),
         .. FromType("api", typeof(TestRunnerTests)),

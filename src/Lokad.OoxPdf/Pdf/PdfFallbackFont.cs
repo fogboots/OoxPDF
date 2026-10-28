@@ -173,12 +173,6 @@ internal sealed class PdfFallbackFont
         0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9E, 0x9F,
     };
 
-    internal static int DecodeWinAnsi(byte code)
-    {
-        int index = Array.IndexOf(SpecialWinAnsiBytes, code);
-        return index >= 0 ? SpecialWinAnsiCodePoints[index] : code;
-    }
-
     private static readonly int[] SpecialWinAnsiCodePoints = new int[]
     {
         0x20AC, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x017D,
