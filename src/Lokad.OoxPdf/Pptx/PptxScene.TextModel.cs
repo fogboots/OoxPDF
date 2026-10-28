@@ -21,7 +21,8 @@ internal enum PptxSceneImageRecolorKind
     Luminance,
     Duotone,
     Grayscale,
-    BiLevel
+    BiLevel,
+    ColorChange
 }
 
 internal readonly record struct PptxSceneImageRecolor(
@@ -66,6 +67,13 @@ internal readonly record struct PptxSceneImageRecolor(
     public static PptxSceneImageRecolor Grayscale(string? kindValue)
     {
         return new PptxSceneImageRecolor(PptxSceneImageRecolorKind.Grayscale, 0d, 0d, default, default, 0d, kindValue, null, null, null);
+    }
+
+    // Dark holds the source colour, Light the replacement colour and Threshold the
+    // replacement alpha; the colour-change recolor needs no other fields.
+    public static PptxSceneImageRecolor ColorChange(RgbColor from, RgbColor to, double toAlpha, string? kindValue)
+    {
+        return new PptxSceneImageRecolor(PptxSceneImageRecolorKind.ColorChange, 0d, 0d, from, to, Math.Clamp(toAlpha, 0d, 1d), kindValue, null, null, null);
     }
 
     public static PptxSceneImageRecolor BiLevel(double threshold, string? kindValue, string? thresholdValue)

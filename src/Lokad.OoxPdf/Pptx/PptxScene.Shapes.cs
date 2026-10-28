@@ -124,6 +124,8 @@ internal sealed partial class PptxSceneBuilder
             IsSupportedAlphaGradientFill();
         bool supportedShapeFill = fill?.Name == DrawingNamespace + "solidFill" &&
             owner?.Name == PresentationNamespace + "spPr";
+        bool supportedGroupFill = fill?.Name == DrawingNamespace + "solidFill" &&
+            owner?.Name == PresentationNamespace + "grpSpPr";
         bool supportedBackgroundFill = fill?.Name == DrawingNamespace + "solidFill" &&
             owner?.Name == PresentationNamespace + "bgPr";
         bool supportedShapeLine = fill?.Name == DrawingNamespace + "solidFill" &&
@@ -142,7 +144,11 @@ internal sealed partial class PptxSceneBuilder
             owner?.Name == DrawingNamespace + "effectLst";
         bool supportedGlow = fill?.Name == DrawingNamespace + "glow" &&
             owner?.Name == DrawingNamespace + "effectLst";
-        return !supportedUniformGradientFill && !supportedShapeFill && !supportedBackgroundFill && !supportedShapeLine && !supportedTextFill && !supportedTableCellFill && !supportedTableBorder && !supportedOuterShadow && !supportedGlow;
+        bool supportedPictureColorChange = fill?.Name == DrawingNamespace + "clrTo" &&
+            owner?.Name == DrawingNamespace + "clrChange" &&
+            lineOwner?.Name == DrawingNamespace + "blip" &&
+            lineOwner.Parent?.Parent?.Name == PresentationNamespace + "pic";
+        return !supportedUniformGradientFill && !supportedShapeFill && !supportedGroupFill && !supportedPictureColorChange && !supportedBackgroundFill && !supportedShapeLine && !supportedTextFill && !supportedTableCellFill && !supportedTableBorder && !supportedOuterShadow && !supportedGlow;
 
         bool IsSupportedAlphaGradientFill()
         {

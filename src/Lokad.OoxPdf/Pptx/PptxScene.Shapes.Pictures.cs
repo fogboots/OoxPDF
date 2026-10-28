@@ -187,13 +187,29 @@ internal sealed partial class PptxSceneBuilder
             }
         }
 
+        XElement? colorChange = blip.Element(DrawingNamespace + "clrChange");
+        if (colorChange?.Element(DrawingNamespace + "clrFrom")?.Elements().FirstOrDefault() is { } fromElement &&
+            colorChange.Element(DrawingNamespace + "clrTo")?.Elements().FirstOrDefault() is { } toElement &&
+            TryReadImageRecolorColor(fromElement, theme, colorMap, out RgbColor from, out _) &&
+            TryReadImageRecolorColor(toElement, theme, colorMap, out RgbColor to, out double toAlpha))
+        {
+            return PptxSceneImageRecolor.ColorChange(from, to, toAlpha, colorChange.Name.LocalName);
+        }
+
         return PptxSceneImageRecolor.None;
     }
 
     private static bool TryReadImageRecolorColor(XElement colorElement, PptxTheme theme, PptxColorMap colorMap, out RgbColor color)
     {
+        return TryReadImageRecolorColor(colorElement, theme, colorMap, out color, out _);
+    }
+
+    private static bool TryReadImageRecolorColor(XElement colorElement, PptxTheme theme, PptxColorMap colorMap, out RgbColor color, out double alpha)
+    {
+        alpha = 1d;
         if (colorElement.Name == DrawingNamespace + "prstClr")
         {
+            alpha = PptxColorResolver.ReadAlpha(new XElement(DrawingNamespace + "solidFill", new XElement(colorElement)));
             string? preset = (string?)colorElement.Attribute("val");
             color = preset switch
             {
@@ -205,7 +221,7 @@ internal sealed partial class PptxSceneBuilder
         }
 
         XElement wrapper = new(DrawingNamespace + "solidFill", new XElement(colorElement));
-        return PptxColorResolver.TryReadSolidColorWithAlpha(wrapper, theme, colorMap, out color, out _);
+        return PptxColorResolver.TryReadSolidColorWithAlpha(wrapper, theme, colorMap, out color, out alpha);
     }
 
     private static PptxSceneRect ReadPercentageRectangle(XElement element)
