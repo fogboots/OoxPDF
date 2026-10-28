@@ -23,7 +23,7 @@ internal sealed partial class DocxRenderer
     private static void RenderImage(DocxInlineImage image, double x, double y, double width, double height,
         PdfGraphicsBuilder graphics, List<PdfImageResource> pageImages, Action<OoxPdfDiagnostic>? diagnosticSink,
         int pageIndex, CancellationToken cancellationToken, Dictionary<string, PdfImageXObject?> imageCache, ref int imageIndex,
-        DocxPictureLineFrame? lineFrame = null, bool requireLineFrame = false)
+        DocxPictureLineFrame? lineFrame = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         DocxPictureCrop crop = image.Crop;
@@ -32,7 +32,7 @@ internal sealed partial class DocxRenderer
         double paintX = x, paintY = y, paintWidth = width, paintHeight = height;
         if (rotates)
         {
-            bool resolved = TryResolveRotatedPictureFrame(image, x, y, width, height, lineFrame, requireLineFrame, out PdfRectangle frame);
+            bool resolved = TryResolveRotatedPictureFrame(image, x, y, width, height, out PdfRectangle frame);
             if (resolved) { paintX = frame.X; paintY = frame.Y; paintWidth = frame.Width; paintHeight = frame.Height; }
             if (!resolved)
             {
@@ -93,12 +93,13 @@ internal sealed partial class DocxRenderer
     }
 
     private static bool TryResolveRotatedPictureFrame(DocxInlineImage image, double x, double y, double width, double height,
-        DocxPictureLineFrame? lineFrame, bool requireLineFrame, out PdfRectangle frame)
+        out PdfRectangle frame)
     {
         frame = default;
+        // Without a paragraph line frame the picture still rotates in its own box;
+        // only the line clip is skipped.
         if (image.RotationDegrees == 0d || !double.IsFinite(image.RotationDegrees) ||
-            image.PictureFrame is not { IsUsable: true } source ||
-            (requireLineFrame && lineFrame is not { IsUsable: true })) return false;
+            image.PictureFrame is not { IsUsable: true } source) return false;
         double scale = Math.Min(width / source.Width, height / source.Height);
         double paintWidth = source.Width * scale, paintHeight = source.Height * scale;
         double paintY = y + height - paintHeight;

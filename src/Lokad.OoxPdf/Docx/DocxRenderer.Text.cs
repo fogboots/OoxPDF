@@ -107,18 +107,18 @@ internal sealed partial class DocxRenderer
         ref int imageIndex, DocxFontResources fontResources, DocxMarkupContext markupContext)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        // A resolved rotation uses the whole paragraph line frame, rather than
-        // the unrotated picture's baseline-to-top clip.
-        bool usesRotatedLineFrame = TryResolveRotatedPictureFrame(image.Image, image.X, image.Y,
-            image.Width, image.Height, image.LineFrame, requireLineFrame: true, out _);
-        bool clipped = !usesRotatedLineFrame && image.ClipBounds.HasValue;
+        // A resolved rotation clips to the whole paragraph line frame when there is
+        // one, rather than to the unrotated picture's baseline-to-top clip.
+        bool rotated = TryResolveRotatedPictureFrame(image.Image, image.X, image.Y,
+            image.Width, image.Height, out _);
+        bool clipped = !rotated && image.ClipBounds.HasValue;
         if (clipped) graphics.SaveState();
         try
         {
             if (clipped && image.ClipBounds is { } clip) graphics.ClipRectangle(clip.X, clip.Y, clip.Width, clip.Height);
             RenderImage(image.Image, image.X, image.Y, image.Width, image.Height, graphics, pageImages,
                 diagnosticSink, image.PageIndex, cancellationToken, imageCache, ref imageIndex,
-                image.LineFrame, requireLineFrame: true);
+                image.LineFrame);
         }
         finally { if (clipped) graphics.RestoreState(); }
         // Review ink sits outside the picture clip, within its container's clip.
