@@ -40,6 +40,16 @@ internal static class OoxImageDecoder
         IsJpegContentType(contentType) || IsPngContentType(contentType) || IsBmpContentType(contentType) || IsTiffContentType(contentType) ||
         IsGifContentType(contentType) || IsMetafileContentType(contentType);
 
+    // True when JpegImage can turn the stream into pixels: baseline DCT, 8-bit
+    // gray or three-component, within the pixel budget. A malformed frame header throws.
+    public static bool CanDecodeJpegPixels(byte[] bytes)
+    {
+        JpegInfo info = JpegInfo.Read(bytes);
+        return info.IsBaselineDct && info.ComponentCount is 1 or 3 &&
+            info.Width <= ImagePixelBudget.MaxDimension && info.Height <= ImagePixelBudget.MaxDimension &&
+            (long)info.Width * info.Height <= ImagePixelBudget.MaxPixels;
+    }
+
     public static PdfImageXObject Decode(string contentType, byte[] bytes, Func<byte[], byte[]> recolorRgb, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

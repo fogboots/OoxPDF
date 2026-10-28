@@ -679,7 +679,8 @@ internal sealed partial class PptxSceneBuilder
             TryReadOuterShadow(shapeProperties, theme, colorMap, out PptxSceneOuterShadow outerShadow) ? outerShadow : default,
             ReadPresetGeometry(shapeProperties),
             ReadPresetAdjustments(shapeProperties),
-            shapeProperties?.Element(DrawingNamespace + "custGeom") is not null);
+            shapeProperties?.Element(DrawingNamespace + "custGeom") is not null,
+            ReadCustomGeometry(shapeProperties));
 
         bool HasPictureAudio()
         {

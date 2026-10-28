@@ -174,7 +174,7 @@ internal sealed partial class PptxRenderer
         {
             graphics.FillPolygonEvenOdd(polygonPoints);
         }
-        else
+        else if (!TryFillPresetGeometry(graphics, shapeProperties, preset, x, y, width, height, presetAdjustmentsOverride))
         {
             graphics.FillRectangleEvenOdd(x, y, width, height);
         }

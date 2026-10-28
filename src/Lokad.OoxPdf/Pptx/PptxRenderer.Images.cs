@@ -95,7 +95,10 @@ internal sealed partial class PptxRenderer
         }
 
         string preset = geometry.Preset;
-        bool supportedGeometry = !geometry.HasCustomGeometry && CanRenderPictureFillPreset(preset);
+        PptxSceneCustomGeometry? customGeometry = geometry.HasCustomGeometry && geometry.CustomGeometry is { HasGeometry: true, HasUnsupportedGeometry: false } authored
+            ? authored
+            : null;
+        bool supportedGeometry = customGeometry is not null || (!geometry.HasCustomGeometry && CanRenderPictureFillPreset(preset));
         if (!supportedGeometry)
         {
             diagnosticSink?.Invoke(new OoxPdfDiagnostic("PPTX_PICTURE_GEOMETRY_UNSUPPORTED", OoxPdfSeverity.Warning,
@@ -114,7 +117,7 @@ internal sealed partial class PptxRenderer
         if (imageResource.ContentType.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase))
         {
             RenderSvgPicture(graphics, document, transformedBounds, imageResource.Bytes, crop, fillRect, diagnosticSink, slideIndex, targetPartName, cancellationToken, preset, geometry.PresetAdjustments);
-            StrokePictureFrame(document, graphics, transformedBounds, x, y, width, height, line, hasTransform, preset, geometry.PresetAdjustments);
+            StrokePictureFrame(document, graphics, transformedBounds, x, y, width, height, line, hasTransform, preset, geometry.PresetAdjustments, customGeometry);
             return;
         }
 
@@ -162,6 +165,14 @@ internal sealed partial class PptxRenderer
                     // D02: shared pixel decoding; unsupported types keep the silent
                     // PDF-clipping fallback (no diagnostic), exactly as before.
                     if (!OoxImageDecoder.IsSupportedContentType(contentType))
+                    {
+                        return null;
+                    }
+
+                    // A JPEG the pixel decoder does not take (progressive, CMYK, or past the
+                    // pixel budget) is placed unchanged by DCTDecode and clipped to the crop
+                    // window, which shows the same pixels, so nothing is lost.
+                    if (OoxImageDecoder.IsJpegContentType(contentType) && !OoxImageDecoder.CanDecodeJpegPixels(bytes))
                     {
                         return null;
                     }
@@ -233,7 +244,9 @@ internal sealed partial class PptxRenderer
 
         // Source crop/fill controls image sampling. The authored mask belongs
         // to the picture frame, in the same transformed coordinate system.
-        if (preset != "rect")
+        if (customGeometry is not null)
+            ClipToCustomGeometry(graphics, customGeometry, x, y, width, height);
+        else if (preset != "rect")
             ClipToPresetShape(graphics, null, preset, x, y, width, height, geometry.PresetAdjustments);
         graphics.ClipRectangleEvenOdd(clipX, clipY, clipWidth, clipHeight);
         if (emf is not null)
@@ -266,7 +279,7 @@ internal sealed partial class PptxRenderer
             images.Add(new PdfImageResource(name, image));
         }
 
-        StrokePictureFrame(document, graphics, transformedBounds, x, y, width, height, line, hasTransform, preset, geometry.PresetAdjustments);
+        StrokePictureFrame(document, graphics, transformedBounds, x, y, width, height, line, hasTransform, preset, geometry.PresetAdjustments, customGeometry);
     }
 
     private static void RenderPictureOuterShadow(
@@ -322,7 +335,8 @@ internal sealed partial class PptxRenderer
         LineStyle line,
         bool transformed,
         string preset,
-        IReadOnlyDictionary<string, double> adjustments)
+        IReadOnlyDictionary<string, double> adjustments,
+        PptxSceneCustomGeometry? customGeometry = null)
     {
         if (!line.HasLine)
         {
@@ -367,8 +381,19 @@ internal sealed partial class PptxRenderer
         double outlineOutset = line.Width / 2d;
         // Office's picture outline surrounds the frame: its centerline grows
         // by half the authored width on each side, including nonrectangular masks.
-        StrokePresetShape(graphics, null, preset, x - outlineOutset, y - outlineOutset,
-            width + line.Width, height + line.Width, adjustments);
+        if (customGeometry is not null)
+        {
+            foreach (PptxSceneCustomPath path in customGeometry.Paths.Where(path => path.AllowsStroke))
+            {
+                AppendCustomGeometryPath(graphics, customGeometry, path, x - outlineOutset, y - outlineOutset, width + line.Width, height + line.Width);
+                graphics.StrokeCurrentPath();
+            }
+        }
+        else
+        {
+            StrokePresetShape(graphics, null, preset, x - outlineOutset, y - outlineOutset,
+                width + line.Width, height + line.Width, adjustments);
+        }
 
         if (line.DashPattern is { Count: > 0 })
         {
@@ -740,7 +765,8 @@ internal sealed partial class PptxRenderer
     private static bool CanRenderPictureFillPreset(string preset)
     {
         return preset is "rect" or "ellipse" or "roundRect" ||
-            TryCreatePresetPolygonPoints(preset, 0d, 0d, 1d, 1d, out _);
+            TryCreatePresetPolygonPoints(preset, 0d, 0d, 1d, 1d, out _) ||
+            HasPresetGeometryDefinition(preset);
     }
 
     private static void StrokePresetShape(PdfGraphicsBuilder graphics, XElement? shapeProperties, string preset,
@@ -753,7 +779,18 @@ internal sealed partial class PptxRenderer
             graphics.StrokePolygon(points);
         else if (TryAppendPresetBracketPath(graphics, shapeProperties, preset, x, y, width, height, adjustments))
             graphics.StrokeCurrentPath();
-        else graphics.StrokeRectangle(x, y, width, height);
+        else if (!TryStrokePresetGeometry(graphics, shapeProperties, preset, x, y, width, height, adjustments))
+            graphics.StrokeRectangle(x, y, width, height);
+    }
+
+    private static void ClipToCustomGeometry(PdfGraphicsBuilder graphics, PptxSceneCustomGeometry geometry, double x, double y, double width, double height)
+    {
+        foreach (PptxSceneCustomPath path in geometry.Paths.Where(path => path.AllowsFill))
+        {
+            AppendCustomGeometryPath(graphics, geometry, path, x, y, width, height);
+        }
+
+        graphics.ClipCurrentPath();
     }
 
     private static void ClipToPresetShape(
@@ -778,7 +815,7 @@ internal sealed partial class PptxRenderer
         {
             graphics.ClipPolygon(polygonPoints);
         }
-        else
+        else if (!TryClipToPresetGeometry(graphics, shapeProperties, preset, x, y, width, height, presetAdjustmentsOverride))
         {
             graphics.ClipRectangle(x, y, width, height);
         }

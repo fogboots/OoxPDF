@@ -14,7 +14,48 @@ internal sealed class JpegImage
         53, 60, 61, 54, 47, 55, 62, 63
     ];
 
-    private readonly record struct HuffmanEntry(int Code, int Length, int Symbol);
+    // Cos[x * 8 + u] = cos((2x + 1) u pi / 16); CosScale[u * 8 + v] = c(u) c(v).
+    private static readonly double[] Cos = BuildCosTable();
+
+    private static readonly double[] CosScale = BuildCosScaleTable();
+
+    private static double[] BuildCosTable()
+    {
+        var table = new double[64];
+        for (int x = 0; x < 8; x++)
+        {
+            for (int u = 0; u < 8; u++)
+            {
+                table[x * 8 + u] = Math.Cos((2 * x + 1) * u * Math.PI / 16d);
+            }
+        }
+
+        return table;
+    }
+
+    private static double[] BuildCosScaleTable()
+    {
+        var table = new double[64];
+        for (int u = 0; u < 8; u++)
+        {
+            for (int v = 0; v < 8; v++)
+            {
+                table[u * 8 + v] = (u == 0 ? Math.Sqrt(0.5d) : 1d) * (v == 0 ? Math.Sqrt(0.5d) : 1d);
+            }
+        }
+
+        return table;
+    }
+
+    // Canonical Huffman decode table: per code length the first code, the last code
+    // and the index of its first symbol, so one symbol costs at most 16 comparisons.
+    private sealed class HuffmanTable
+    {
+        public readonly int[] MaxCode = new int[18];
+        public readonly int[] FirstCode = new int[17];
+        public readonly int[] FirstIndex = new int[17];
+        public byte[] Symbols = [];
+    }
 
     private sealed class Component
     {
@@ -55,13 +96,14 @@ internal sealed class JpegImage
         private readonly byte[] bytes;
         private readonly CancellationToken cancellationToken;
         private readonly int[][] quantizationTables = new int[4][];
-        private readonly HuffmanEntry[][] dcTables = new HuffmanEntry[4][];
-        private readonly HuffmanEntry[][] acTables = new HuffmanEntry[4][];
+        private readonly HuffmanTable?[] dcTables = new HuffmanTable?[4];
+        private readonly HuffmanTable?[] acTables = new HuffmanTable?[4];
         private readonly List<Component> components = [];
         private int width;
         private int height;
         private int maxHorizontal = 1;
         private int maxVertical = 1;
+        private int restartInterval;
 
         public Decoder(byte[] bytes, CancellationToken cancellationToken = default)
         {
@@ -100,6 +142,14 @@ internal sealed class JpegImage
                         break;
                     case 0xC4:
                         ReadHuffmanTables(segment);
+                        break;
+                    case 0xDD:
+                        if (segment.Length < 2)
+                        {
+                            throw new InvalidDataException("JPEG restart interval is truncated.");
+                        }
+
+                        restartInterval = (segment[0] << 8) | segment[1];
                         break;
                 }
                 offset += length;
@@ -240,26 +290,28 @@ internal sealed class JpegImage
                     throw new InvalidDataException("JPEG Huffman symbols are truncated.");
                 }
 
-                var entries = new List<HuffmanEntry>(symbolCount);
+                var table = new HuffmanTable { Symbols = segment.Slice(offset, symbolCount).ToArray() };
+                offset += symbolCount;
                 int code = 0;
+                int index = 0;
                 for (int length = 1; length <= 16; length++)
                 {
-                    for (int i = 0; i < counts[length - 1]; i++)
-                    {
-                        entries.Add(new HuffmanEntry(code, length, segment[offset++]));
-                        code++;
-                    }
-
+                    int count = counts[length - 1];
+                    table.FirstCode[length] = code;
+                    table.FirstIndex[length] = index;
+                    code += count;
+                    index += count;
+                    table.MaxCode[length] = count == 0 ? -1 : code - 1;
                     code <<= 1;
                 }
 
                 if (tableClass == 0)
                 {
-                    dcTables[tableId] = entries.ToArray();
+                    dcTables[tableId] = table;
                 }
                 else if (tableClass == 1)
                 {
-                    acTables[tableId] = entries.ToArray();
+                    acTables[tableId] = table;
                 }
                 else
                 {
@@ -302,11 +354,22 @@ internal sealed class JpegImage
             var reader = new EntropyReader(bytes, offset);
             int mcuColumns = (width + maxHorizontal * 8 - 1) / (maxHorizontal * 8);
             int mcuRows = (height + maxVertical * 8 - 1) / (maxVertical * 8);
+            int mcuCount = 0;
             for (int mcuY = 0; mcuY < mcuRows; mcuY++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 for (int mcuX = 0; mcuX < mcuColumns; mcuX++)
                 {
+                    if (restartInterval > 0 && mcuCount > 0 && mcuCount % restartInterval == 0)
+                    {
+                        reader.Restart();
+                        foreach (Component component in components)
+                        {
+                            component.DcPredictor = 0;
+                        }
+                    }
+
+                    mcuCount++;
                     foreach (Component component in components)
                     {
                         for (int v = 0; v < component.Vertical; v++)
@@ -359,9 +422,9 @@ internal sealed class JpegImage
         {
             int[] quantization = quantizationTables[component.QuantizationTableId] ??
                 throw new InvalidDataException("JPEG scan references a missing quantization table.");
-            HuffmanEntry[] dcTable = dcTables[component.DcTableId] ??
+            HuffmanTable dcTable = dcTables[component.DcTableId] ??
                 throw new InvalidDataException("JPEG scan references a missing DC Huffman table.");
-            HuffmanEntry[] acTable = acTables[component.AcTableId] ??
+            HuffmanTable acTable = acTables[component.AcTableId] ??
                 throw new InvalidDataException("JPEG scan references a missing AC Huffman table.");
 
             var coefficients = new int[64];
@@ -399,17 +462,18 @@ internal sealed class JpegImage
             WriteBlockSamples(component, blockX, blockY, coefficients);
         }
 
-        private static int DecodeHuffmanSymbol(EntropyReader reader, HuffmanEntry[] table)
+        private static int DecodeHuffmanSymbol(EntropyReader reader, HuffmanTable table)
         {
             int code = 0;
             for (int length = 1; length <= 16; length++)
             {
                 code = (code << 1) | reader.ReadBit();
-                foreach (HuffmanEntry entry in table)
+                if (code <= table.MaxCode[length])
                 {
-                    if (entry.Length == length && entry.Code == code)
+                    int offset = code - table.FirstCode[length];
+                    if (offset >= 0)
                     {
-                        return entry.Symbol;
+                        return table.Symbols[table.FirstIndex[length] + offset];
                     }
                 }
             }
@@ -438,6 +502,18 @@ internal sealed class JpegImage
 
         private static void WriteBlockSamples(Component component, int blockX, int blockY, int[] coefficients)
         {
+            // Most coefficients are zero; summing only the others gives the same
+            // double result as the full 64-term sum.
+            Span<int> nonZero = stackalloc int[64];
+            int nonZeroCount = 0;
+            for (int i = 0; i < 64; i++)
+            {
+                if (coefficients[i] != 0)
+                {
+                    nonZero[nonZeroCount++] = i;
+                }
+            }
+
             for (int y = 0; y < 8; y++)
             {
                 int targetY = blockY + y;
@@ -454,27 +530,17 @@ internal sealed class JpegImage
                         continue;
                     }
 
-                    component.Samples[targetY * component.SampleWidth + targetX] = ToByte(InverseDct(x, y) + 128d);
-                }
-            }
-
-            double InverseDct(int x, int y)
-            {
-                double sum = 0d;
-                for (int v = 0; v < 8; v++)
-                {
-                    double cv = v == 0 ? Math.Sqrt(0.5d) : 1d;
-                    double yCos = Math.Cos((2 * y + 1) * v * Math.PI / 16d);
-                    for (int u = 0; u < 8; u++)
+                    double sum = 0d;
+                    for (int n = 0; n < nonZeroCount; n++)
                     {
-                        double cu = u == 0 ? Math.Sqrt(0.5d) : 1d;
-                        sum += cu * cv * coefficients[v * 8 + u] *
-                            Math.Cos((2 * x + 1) * u * Math.PI / 16d) *
-                            yCos;
+                        int index = nonZero[n];
+                        int v = index >> 3;
+                        int u = index & 7;
+                        sum += CosScale[u * 8 + v] * coefficients[index] * Cos[x * 8 + u] * Cos[y * 8 + v];
                     }
-                }
 
-                return sum / 4d;
+                    component.Samples[targetY * component.SampleWidth + targetX] = ToByte(sum / 4d + 128d);
+                }
             }
         }
 
@@ -568,6 +634,23 @@ internal sealed class JpegImage
             return (bitBuffer >> bitCount) & 1;
         }
 
+        // Restart markers byte-align the stream; the caller resets the DC predictors.
+        public void Restart()
+        {
+            bitCount = 0;
+            while (offset + 1 < bytes.Length && bytes[offset] == 0xFF && bytes[offset + 1] == 0xFF)
+            {
+                offset++;
+            }
+
+            if (offset + 1 >= bytes.Length || bytes[offset] != 0xFF || bytes[offset + 1] is < 0xD0 or > 0xD7)
+            {
+                throw new InvalidDataException("JPEG restart marker was not found.");
+            }
+
+            offset += 2;
+        }
+
         private int ReadEntropyByte()
         {
             if (offset >= bytes.Length)
@@ -595,11 +678,6 @@ internal sealed class JpegImage
             if (marker == 0x00)
             {
                 return 0xFF;
-            }
-
-            if (marker is >= 0xD0 and <= 0xD7)
-            {
-                return ReadEntropyByte();
             }
 
             throw new InvalidDataException($"Unexpected JPEG entropy marker 0xFF{marker:X2}.");

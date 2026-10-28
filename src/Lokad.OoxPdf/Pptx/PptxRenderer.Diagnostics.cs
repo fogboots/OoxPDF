@@ -221,7 +221,7 @@ internal sealed partial class PptxRenderer
     private static bool IsUnsupportedCalloutPreset(string? preset)
     {
         return preset?.Contains("Callout", StringComparison.OrdinalIgnoreCase) == true &&
-            !string.Equals(preset, "wedgeRectCallout", StringComparison.Ordinal);
+            !HasPresetGeometryDefinition(preset);
     }
 
     private static bool HasUnsupportedCallout(IEnumerable<PptxSceneNode> nodes)
@@ -489,8 +489,7 @@ internal sealed partial class PptxRenderer
         foreach (PptxSceneNode node in nodes)
         {
             if (SceneTextBodyNeedsVerticalOverflowDiagnostic(node.TextBody) ||
-                HasUnsupportedTableTextVerticalOverflow(node.Table) ||
-                HasUnsupportedChartTextVerticalOverflow(node.Chart))
+                HasUnsupportedTableTextVerticalOverflow(node.Table))
             {
                 return true;
             }
@@ -498,13 +497,8 @@ internal sealed partial class PptxRenderer
 
         return false;
 
-        bool HasUnsupportedChartTextVerticalOverflow(PptxSceneChart? chart)
-        {
-            return chart is not null &&
-                (HasUnsupportedTextVerticalOverflow(chart.Title.TextBodyProperties.VerticalOverflowValue) ||
-                    chart.Axes.Any(axis => HasUnsupportedTextVerticalOverflow(axis.Title.TextBodyProperties.VerticalOverflowValue)));
-        }
-
+        // Chart and axis titles size their box to the text (a manual layout only
+        // places them), so vertOverflow="ellipsis" on them never truncates anything.
         bool HasUnsupportedTableTextVerticalOverflow(PptxSceneTable? table)
         {
             return table?.Rows.Any(row => row.Cells.Any(cell =>
