@@ -96,7 +96,7 @@ internal static class TiffImage
             ReadOnlySpan<byte> source = bytes.AsSpan(start, length);
             byte[] pixels = compression switch
             {
-                1 when length >= expected => source[..expected].ToArray(),
+                1 when length == expected => source.ToArray(),
                 1 => throw new InvalidDataException("Invalid TIFF strip length."),
                 5 => DecodeLzw(source, expected, cancellationToken),
                 8 or 32946 => Inflate(source, expected),

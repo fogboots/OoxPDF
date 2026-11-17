@@ -153,7 +153,7 @@ internal static class DocxImagesTests
                     .RenderBlankPages(document, diagnostics.Add, CancellationToken.None).Single();
                 TestAssert.Equal(1, page.Images.Count);
                 if (!missing)
-                    TestAssert.True(diagnostics.Any(d => d.Id == "SVG_UNSUPPORTED_CONTENT" && d.PageIndex == 1 && d.SlideIndex is null && d.Fallback == "RasterImage"), "Malformed SVG diagnoses the authored raster fallback on the document page: " + string.Join(';', diagnostics.Select(d => d.ToString())));
+                    TestAssert.True(diagnostics.Any(d => d.Id == "SVG_RASTER_PREVIEW_USED" && d.PageIndex == 1 && d.SlideIndex is null && d.Fallback == "RasterImage"), "Malformed SVG diagnoses the authored raster fallback on the document page: " + string.Join(';', diagnostics.Select(d => d.ToString())));
             }
             finally { File.Delete(input); }
         }
@@ -635,7 +635,7 @@ internal static class DocxImagesTests
         {
             DiagnosticSink = diagnostic =>
             {
-                if (diagnostic.Id == "IMAGE_UNSUPPORTED_FORMAT")
+                if (diagnostic.Id == "IMAGE_CORRUPT_DATA")
                 {
                     cancellation.Cancel();
                 }
@@ -692,7 +692,7 @@ internal static class DocxImagesTests
         OoxPdfConverter.Convert(input, output, new OoxPdfOptions { DiagnosticSink = collector.Add });
 
         TestAssert.True(File.Exists(output), "Unsupported DOCX image should not fail the whole conversion.");
-        TestAssert.True(collector.Diagnostics.Any(d => d.Id == "IMAGE_UNSUPPORTED_FORMAT" && d.Severity == OoxPdfSeverity.Error && d.PartName == "/word/media/image1.png"), "Unsupported DOCX image should emit a release-blocking diagnostic.");
+        TestAssert.True(collector.Diagnostics.Any(d => d.Id == "IMAGE_CORRUPT_DATA" && d.Severity == OoxPdfSeverity.Error && d.PartName == "/word/media/image1.png"), "A PNG without pixel data should emit a release-blocking diagnostic.");
     }
 
     public static void DocxMarkupModesFilterRevisedImagesAndFloatingDrawings()

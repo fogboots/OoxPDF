@@ -547,10 +547,8 @@ internal sealed partial class DocxReader
         string? typeValue = (string?)sectionProperties
             .Element(WordprocessingNamespace + "type")
             ?.Attribute(WordprocessingNamespace + "val");
-        return typeValue is not null &&
-            !typeValue.Equals("nextPage", StringComparison.OrdinalIgnoreCase) &&
-            !typeValue.Equals("oddPage", StringComparison.OrdinalIgnoreCase) &&
-            !typeValue.Equals("evenPage", StringComparison.OrdinalIgnoreCase);
+        // Continuous and next-column starts lay out as column regions on the same page.
+        return typeValue is not null && DocxSectionBreakTypeExtensions.FromValue(typeValue) is null;
     }
 
     private static bool HasUnsupportedMultiColumnSection(XDocument document)
@@ -576,30 +574,13 @@ internal sealed partial class DocxReader
             return true;
         }
 
-        return !IsSupportedExplicitFinalSectionColumnFlow(document, multiColumnDeclarations);
+        // Columns flow and continuous section regions balance; unequal columns do not
+        // rebalance (lines keep the width they wrapped at), so those stay approximated.
+        return multiColumnDeclarations.Any(columns =>
+            (string?)columns.Attribute(WordprocessingNamespace + "equalWidth") is "0" or "false" &&
+            columns.Parent?.Parent?.Name == WordprocessingNamespace + "pPr");
     }
 
-
-    private static bool IsSupportedExplicitFinalSectionColumnFlow(XDocument document, IReadOnlyList<XElement> multiColumnDeclarations)
-    {
-        XElement? body = document.Root?.Element(WordprocessingNamespace + "body");
-        XElement? finalSectionProperties = body?.Element(WordprocessingNamespace + "sectPr");
-        XElement? finalColumns = finalSectionProperties?.Element(WordprocessingNamespace + "cols");
-        if (body is null ||
-            finalColumns is null ||
-            multiColumnDeclarations.Count != 1 ||
-            !ReferenceEquals(finalColumns, multiColumnDeclarations[0]))
-        {
-            return false;
-        }
-
-        int columnCount = (int)OoxXml.ParseRequiredLong(finalColumns, WordprocessingNamespace + "num", "column count");
-        int supportedColumnBreaks = body
-            .Elements(WordprocessingNamespace + "p")
-            .SelectMany(paragraph => paragraph.Descendants(WordprocessingNamespace + "br"))
-            .Count(breakElement => IsColumnBreak(breakElement) && !IsUnsupportedColumnBreak(breakElement));
-        return supportedColumnBreaks == columnCount - 1;
-    }
 
     private static bool IsUnsupportedColumnBreak(XElement breakElement)
     {

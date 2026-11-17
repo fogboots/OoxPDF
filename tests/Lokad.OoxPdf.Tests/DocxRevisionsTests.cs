@@ -79,11 +79,16 @@ internal static class DocxRevisionsTests
 
         string ids = string.Join("|", diagnostics.Select(d => d.Id).Order(StringComparer.Ordinal));
         TestAssert.DoesNotContain("DOCX_UNSUPPORTED_VML", ids);
-        TestAssert.Equal("Before VML note one\nVML note two After", string.Concat(paragraph.Runs.Select(run => run.Text)));
-        TestAssert.True(paragraph.Revisions.Any(revision => revision.Kind == DocxRevisionKind.ParagraphPropertiesChange && revision.PropertyElementNames.Contains("pStyle")), "VML textbox paragraph formatting revisions should be retained as private-safe provenance.");
+        // The VML text box converts to an inline DrawingML text box beside the run text.
+        TestAssert.Equal("Before  After", string.Concat(paragraph.Runs.Select(run => run.Text)));
+        TestAssert.Equal("VML note one|VML note two", string.Join("|", DocxBlockTraversal.EnumerateBodyParagraphs(paragraph.InlineTextBoxes.Single().BodyElements)
+            .Select(boxParagraph => string.Concat(boxParagraph.Runs.Select(run => run.Text)))));
+        TestAssert.True(DocxBlockTraversal.EnumerateBodyParagraphs(paragraph.InlineTextBoxes.Single().BodyElements).First().Revisions
+            .Any(revision => revision.Kind == DocxRevisionKind.ParagraphPropertiesChange && revision.PropertyElementNames.Contains("pStyle")), "VML textbox paragraph formatting revisions should be retained as private-safe provenance.");
+        // Like DrawingML inline text boxes, the converted box's paragraphs are outside
+        // the body-paragraph structure counts.
         DocxStructureSnapshot structure = new DocxRenderer(null, OoxPdfDocxMarkupMode.AllMarkup, OoxPdfDocxMarkupGeometryMode.PreserveDocumentLayout).InspectStructure(document);
-        TestAssert.Equal(1, structure.FormattingRevisionCount);
-        TestAssert.Equal(1, structure.ParagraphFormattingRevisionCount);
+        TestAssert.Equal(0, structure.FormattingRevisionCount);
         string pdf = File.ReadAllText(output, Encoding.ASCII);
         TestAssert.True(DocxTests.CountPdfTextShows(pdf) >= 3, "VML textbox text should be emitted as paragraph text.");
     }

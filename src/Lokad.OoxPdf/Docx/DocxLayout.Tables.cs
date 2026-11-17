@@ -986,6 +986,10 @@ internal sealed partial class DocxLayoutEngine
         }
         bool completeBodyFrame = adjustAlignedMinimumMargins &&
             alignedMinimumAvailableHeight is { } available && rowHeights.Sum() <= available;
+        // Without merge spans, the available height only decides whether the complete
+        // table fits; once it overflows, any smaller height yields this same frame.
+        double? sameBelow = mergeSpans.Count == 0 && alignedMinimumAvailableHeight is { } measuredAvailable && !completeBodyFrame &&
+            (!adjustAlignedMinimumMargins || rowHeights.Sum() > measuredAvailable) ? measuredAvailable : null;
         tableContext = tableContext with {
             AlignedMinimumRowBottomMargins = rowBottomMargins,
             AutomaticMinimumRowPlacement = completeBodyFrame &&
@@ -996,7 +1000,7 @@ internal sealed partial class DocxLayoutEngine
         };
 
         return new DocxTableLayoutFrame(tableContext, grid.EffectiveColumns, grid.Scale, rowHeights, grid.TableX)
-        { BoundaryMinimumRowHeights = boundaryMinimumRowHeights };
+        { BoundaryMinimumRowHeights = boundaryMinimumRowHeights, SameBelowAvailableHeight = sameBelow };
     }
 
     private static DocxResolvedTableGrid ResolveTableGrid(DocxTable table, double x, double availableWidth, double fixedScale, IDocxTextMeasurer? textMeasurer, double defaultTabStopPoints, int? pageNumber, int? pageCount, IReadOnlyDictionary<string, string>? commentMarkerLabels = null, IReadOnlyDictionary<DocxEquation, DocxPreparedMathParagraph>? mathEquations = null, CancellationToken cancellationToken = default, bool anchorAuthoredCellText = true)

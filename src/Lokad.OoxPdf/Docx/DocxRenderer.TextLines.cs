@@ -439,7 +439,7 @@ internal sealed partial class DocxRenderer
         }
     }
 
-    private static DocxTableRowLayout TranslateTableRow(DocxTableRowLayout row, double deltaX, double deltaY)
+    internal static DocxTableRowLayout TranslateTableRow(DocxTableRowLayout row, double deltaX, double deltaY)
     {
         return row with
         {

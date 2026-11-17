@@ -119,6 +119,10 @@ internal sealed partial class DocxRenderer
             image.ContentType.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase) &&
             PptxRenderer.SvgHasUnsupportedContent(svgBytes, cancellationToken))
         {
+            // Office stores this preview for readers that cannot draw the vector picture.
+            diagnosticSink?.Invoke(new OoxPdfDiagnostic("SVG_RASTER_PREVIEW_USED", OoxPdfSeverity.Warning,
+                "SVG picture content is not drawn by the vector renderer; the authored raster preview is used.", image.PartName,
+                PageIndex: pageIndex, Feature: "svg", Fallback: "RasterImage"));
             image = raster;
         }
         if (image.Bytes is { } bytes && image.ContentType.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase))

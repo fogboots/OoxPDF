@@ -88,6 +88,8 @@ internal sealed partial class DocxLayoutEngine
     // of its table. A cell's height depends only on these inputs, so it is measured once.
     private static readonly ConditionalWeakTable<DocxTableCell, Dictionary<(IDocxTextMeasurer Measurer, double Width, double TabStop, double? RowTopPadding, int? PageNumber, int? PageCount, double SpacingScale, object? MathEquations), DocxTableCellContentHeight>> measuredCellHeights = new();
 
+    private static readonly ConditionalWeakTable<DocxTableCell, StrongBox<bool>> pageDependentCells = new();
+
     private static DocxTableCellContentHeight MeasureTableCellContentHeight(
         DocxTableCell cell,
         double cellWidth,
@@ -101,7 +103,14 @@ internal sealed partial class DocxLayoutEngine
         CancellationToken cancellationToken = default)
     {
         var heights = measuredCellHeights.GetOrCreateValue(cell);
-        var key = (textMeasurer, cellWidth, defaultTabStopPoints, rowTopPadding, pageNumber, pageCount, paragraphSpacingScale, (object?)mathEquations);
+        // Only PAGE/NUMPAGE fields make a cell's height page dependent; other cells
+        // keep one measurement across the pages a long table spans.
+        bool paged = pageDependentCells.GetValue(cell, static c => new StrongBox<bool>(
+            DocxBlockTraversal.EnumerateBodyParagraphs(GetTableCellLayoutBodyElements(c)).Any(paragraph =>
+                paragraph.Runs.Any(run => run.FieldKind is { } kind && kind.IsDynamic()) ||
+                paragraph.FieldReferences.Any(field => field.Kind.IsDynamic())))).Value;
+        var key = (textMeasurer, cellWidth, defaultTabStopPoints, rowTopPadding, paged ? pageNumber : null, paged ? pageCount : null,
+            paragraphSpacingScale, (object?)mathEquations);
         lock (heights)
         {
             if (heights.TryGetValue(key, out DocxTableCellContentHeight known)) return known;

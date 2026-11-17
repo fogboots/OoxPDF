@@ -463,7 +463,7 @@ internal sealed partial class DocxRenderer
         };
     }
 
-    private static DocxTextLineLayout TranslateTextLine(DocxTextLineLayout line, double deltaX, double deltaY)
+    internal static DocxTextLineLayout TranslateTextLine(DocxTextLineLayout line, double deltaX, double deltaY)
     {
         return line with
         {

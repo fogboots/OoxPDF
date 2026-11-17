@@ -219,6 +219,7 @@ internal static class TestFixtures
         return bytes;
     }
 
+    // A 16-bit RGBA header without pixel data: a damaged PNG (IMAGE_CORRUPT_DATA).
     public static byte[] CreateUnsupportedHighBitDepthPng()
     {
         using var stream = new MemoryStream();

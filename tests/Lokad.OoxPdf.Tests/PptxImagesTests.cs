@@ -3988,7 +3988,7 @@ internal static partial class PptxImagesTests
         OoxPdfConverter.Convert(input, output, new OoxPdfOptions { DiagnosticSink = collector.Add });
 
         TestAssert.True(File.Exists(output), "Unsupported image should not fail the whole conversion.");
-        TestAssert.True(collector.Diagnostics.Any(d => d.Id == "IMAGE_UNSUPPORTED_FORMAT" && d.Severity == OoxPdfSeverity.Error), "Unsupported image should emit a release-blocking diagnostic.");
+        TestAssert.True(collector.Diagnostics.Any(d => d.Id == "IMAGE_CORRUPT_DATA" && d.Severity == OoxPdfSeverity.Error), "A PNG without pixel data should emit a release-blocking diagnostic.");
     }
 
     public static void PptxSyntheticCroppedPictureUsesClipping()

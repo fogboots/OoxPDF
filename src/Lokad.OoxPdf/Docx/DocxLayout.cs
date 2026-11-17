@@ -272,6 +272,9 @@ internal sealed partial class DocxLayoutEngine
     {
         public double PageContentHeight => Context.PageContentHeight;
         public IReadOnlyList<double> BoundaryMinimumRowHeights { get; init; } = [];
+        // The frame is identical for every available height below this one (the
+        // complete table already overflowed it); null when it depends on it.
+        public double? SameBelowAvailableHeight { get; init; }
     }
 
     private sealed record DocxResolvedTableGrid(
@@ -340,6 +343,10 @@ internal sealed partial class DocxLayoutEngine
         double? firstBodyLineBaselineOffset = null;
         double? firstDocumentBodyBaselineOffset = null;
         bool activeColumnHasContent = false;
+        // A continuous section that changes columns mid-page starts its columns at the
+        // cursor: later columns of the same page return to this region top.
+        double? regionTop = null;
+        int regionStartItem = 0;
         int tableIndex = 0;
         double defaultTabStopPoints = document.Settings.DefaultTabStopPoints ?? WordDefaultTabStopPoints;
         bool plainPageStartFrame = requestedGeometryMode == OoxPdfDocxMarkupGeometryMode.WordCompatibleAllMarkup && reservePrintScale == 1d &&
@@ -421,6 +428,8 @@ internal sealed partial class DocxLayoutEngine
             // charges once per final page and repagination never double-charges.
             OoxConversionBudget.Current?.ThrowIfLayoutPagesExceedBudget(pages.Count);
             currentItems = [];
+            regionTop = null;
+            regionStartItem = 0;
             activeColumnIndex = 0;
             page = ResolveSectionGeometry(document, activeSectionSettings, reserveMarkupMargin, retuneReserveToPrintScale, reservePrintScale, pages.Count + 1);
             ApplyActiveColumnFrame();
@@ -1114,7 +1123,7 @@ internal sealed partial class DocxLayoutEngine
             {
                 activeColumnIndex++;
                 ApplyActiveColumnFrame();
-                cursorY = ResolvePageStartCursor();
+                cursorY = regionTop ?? ResolvePageStartCursor();
                 pendingSpacingAfter = 0d;
                 previousParagraph = null;
                 firstBodyLineBaselineOffset = null;
@@ -1138,6 +1147,40 @@ internal sealed partial class DocxLayoutEngine
             {
                 cursorY = ResolvePageStartCursor();
             }
+        }
+
+        // The following section's own type says how it starts. A continuous or
+        // next-column start that changes the column layout or margins stays on this
+        // page: balance the ending multi-column region, then lay the new section's
+        // columns out from the cursor.
+        bool TryStartColumnRegion(int elementIndex)
+        {
+            if (!HasPageContent() || !document.BodyElements.Skip(elementIndex + 1).Any(e => e is not DocxSectionBreakElement)) return false;
+            DocxEffectiveSectionSettings next = FindSectionSettingsAtOrAfter(document.BodyElements, elementIndex + 1, sectionSettingsByElementIndex) ?? finalSectionSettings;
+            DocxSectionBreakType? nextType = DocxSectionBreakTypeExtensions.FromValue(next.SectionProperties.BreakTypeValue);
+            if (nextType is not (DocxSectionBreakType.Continuous or DocxSectionBreakType.NextColumn)) return false;
+            DocxPageGeometry nextGeometry = ResolveSectionGeometry(document, next, reserveMarkupMargin, retuneReserveToPrintScale, reservePrintScale, pages.Count + 1);
+            bool sameFrame = nextGeometry.ColumnFrames.Count == page.ColumnFrames.Count &&
+                nextGeometry.ColumnFrames.Zip(page.ColumnFrames).All(pair => Math.Abs(pair.First.X - pair.Second.X) < 0.01d && Math.Abs(pair.First.Width - pair.Second.Width) < 0.01d);
+            if (Math.Abs(nextGeometry.Width - page.Width) > 0.01d || Math.Abs(nextGeometry.Height - page.Height) > 0.01d ||
+                sameFrame && nextType == DocxSectionBreakType.Continuous && page.ColumnFrames.Count <= 1) return false;
+            if (nextType == DocxSectionBreakType.NextColumn && sameFrame && activeColumnIndex + 1 < page.ColumnFrames.Count)
+            {
+                AdvanceColumnOrPage();
+                activeSectionSettings = next;
+                return true;
+            }
+            double top = regionTop ?? ResolvePageStartCursor();
+            if (BalanceColumnRegion(currentItems, regionStartItem, page.ColumnFrames, top) is { } balancedBottom)
+                cursorY = balancedBottom;
+            activeSectionSettings = next;
+            page = nextGeometry;
+            activeColumnIndex = 0;
+            ApplyActiveColumnFrame();
+            regionTop = cursorY;
+            regionStartItem = currentItems.Count;
+            activeColumnHasContent = false;
+            return true;
         }
 
         bool HasPageContent() => currentItems.Count > 0;
@@ -1237,6 +1280,15 @@ internal sealed partial class DocxLayoutEngine
                 pendingSpacingAfter = 0d;
                 previousParagraph = null;
                 firstBodyLineBaselineOffset = null;
+                continue;
+            }
+
+            if (element is DocxSectionBreakElement && TryStartColumnRegion(elementIndex))
+            {
+                pendingSpacingAfter = 0d;
+                previousParagraph = null;
+                firstBodyLineBaselineOffset = null;
+                currentSectionStartIndex = elementIndex + 1;
                 continue;
             }
 
@@ -1354,9 +1406,18 @@ internal sealed partial class DocxLayoutEngine
                     ? () => HasCurrentColumnContent() || tableActiveFrameHasContent
                     : HasPageContent;
                 DocxTableLayoutFrame? admittedCompleteTableFrame = null;
+                (( double, double, double, int, bool) Key, DocxTableLayoutFrame Frame)? reusableTableFrame = null;
                 DocxTableLayoutFrame ResolveCurrentTableFrame()
                 {
                     if (admittedCompleteTableFrame is not null) return admittedCompleteTableFrame;
+                    // Rows resolve the frame one by one: reuse it while nothing it depends
+                    // on changed, so a long table measures its rows once per page, not per row.
+                    var key = (x, width, page.Height - page.MarginTop - CurrentTableFrameBottom(), pages.Count + 1,
+                        page.ColumnFrames.Count <= 1);
+                    double available = cursorY - CurrentTableFrameBottom();
+                    if (reusableTableFrame is { } reusable && reusable.Key.Equals(key) &&
+                        reusable.Frame.SameBelowAvailableHeight is { } limit && available < limit)
+                        return reusable.Frame;
                     var frame = CreateTableLayoutFrame(
                         bodyTable,
                         currentTableIndex,
@@ -1382,6 +1443,7 @@ internal sealed partial class DocxLayoutEngine
                         bodyTable.Rows.Count == 3 && (frame.Context.AutomaticTopRowContentClip ||
                             frame.Context.DeclaredTopRowContentClips.Any(admitted => admitted)))
                         admittedCompleteTableFrame = frame;
+                    reusableTableFrame = (key, frame);
                     return frame;
                 }
 
