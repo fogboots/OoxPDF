@@ -17,13 +17,22 @@ internal sealed partial class OpenTypeFont
     public bool TryGetNearestMathVerticalVariant(ushort glyph, double height, CancellationToken token,
         out OpenTypeMathGlyphVariant variant) => TrySelectMathVerticalVariant(glyph, height, token, nearest: true, out variant);
 
+    // Horizontal constructions (wide accents, over/under braces) share the
+    // vertical record format; only the coverage and offset array differ.
+    public bool TryGetMathHorizontalVariant(ushort glyph, double minimumWidth, CancellationToken token,
+        out OpenTypeMathGlyphVariant variant) =>
+        TrySelectMathVerticalVariant(glyph, minimumWidth, token, nearest: false, out variant, horizontal: true);
+
+    public bool TryGetMathHorizontalAssembly(ushort glyph, CancellationToken token, out OpenTypeMathGlyphAssembly? assembly) =>
+        TryGetMathAssembly(glyph, horizontal: true, token, out assembly);
+
     private bool TrySelectMathVerticalVariant(ushort glyph, double minimumHeight, CancellationToken token,
-        bool nearest, out OpenTypeMathGlyphVariant variant)
+        bool nearest, out OpenTypeMathGlyphVariant variant, bool horizontal = false)
     {
         variant = default;
         token.ThrowIfCancellationRequested();
         if (glyph == 0 || glyph >= GlyphCount || !double.IsFinite(minimumHeight) || minimumHeight < 0d ||
-            minimumHeight > ushort.MaxValue || !TryGetMathVerticalConstruction(glyph, out _, out var construction)) { return false; }
+            minimumHeight > ushort.MaxValue || !TryGetMathConstruction(glyph, horizontal, out _, out var construction)) { return false; }
         int count = U16(construction, 2);
         bool found = false, adequate = false;
         OpenTypeMathGlyphVariant selected = default;
@@ -46,11 +55,14 @@ internal sealed partial class OpenTypeFont
         return false;
     }
 
-    public bool TryGetMathVerticalAssembly(ushort glyph, CancellationToken token, out OpenTypeMathGlyphAssembly? assembly)
+    public bool TryGetMathVerticalAssembly(ushort glyph, CancellationToken token, out OpenTypeMathGlyphAssembly? assembly) =>
+        TryGetMathAssembly(glyph, horizontal: false, token, out assembly);
+
+    private bool TryGetMathAssembly(ushort glyph, bool horizontal, CancellationToken token, out OpenTypeMathGlyphAssembly? assembly)
     {
         assembly = null;
         token.ThrowIfCancellationRequested();
-        if (!TryGetMathVerticalConstruction(glyph, out var variants, out var construction)) return false;
+        if (!TryGetMathConstruction(glyph, horizontal, out var variants, out var construction)) return false;
         int offset = U16(construction, 0), recordsEnd = 4 + U16(construction, 2) * 4;
         if (offset == 0 || offset < recordsEnd || construction.Length - offset < 6) return false;
         ReadOnlySpan<byte> source = construction.Slice(offset);
@@ -79,7 +91,7 @@ internal sealed partial class OpenTypeFont
         return true;
     }
 
-    private bool TryGetMathVerticalConstruction(ushort glyph, out ReadOnlySpan<byte> variants,
+    private bool TryGetMathConstruction(ushort glyph, bool horizontal, out ReadOnlySpan<byte> variants,
         out ReadOnlySpan<byte> construction)
     {
         variants = construction = default;
@@ -89,16 +101,16 @@ internal sealed partial class OpenTypeFont
         int variantsOffset = U16(table, 8);
         if (variantsOffset < 10 || table.Length - variantsOffset < 10) { return false; }
         variants = table.Slice(variantsOffset);
-        int coverageOffset = U16(variants, 2), verticalCount = U16(variants, 6), horizontalCount = U16(variants, 8);
+        int coverageOffset = U16(variants, horizontal ? 4 : 2), verticalCount = U16(variants, 6), horizontalCount = U16(variants, 8);
+        int count = horizontal ? horizontalCount : verticalCount;
         int offsetsEnd = 10 + (verticalCount + horizontalCount) * 2;
-        if (verticalCount == 0 || variants.Length < offsetsEnd || coverageOffset < offsetsEnd ||
+        if (count == 0 || variants.Length < offsetsEnd || coverageOffset < offsetsEnd ||
             variants.Length - coverageOffset < 4 ||
-            !TryGetCoverageIndex(variants.Slice(coverageOffset), glyph, out int index) || index < 0 || index >= verticalCount)
+            !TryGetCoverageIndex(variants.Slice(coverageOffset), glyph, out int index) || index < 0 || index >= count)
             { return false; }
-        int constructionOffset = U16(variants, 10 + index * 2);
+        int constructionOffset = U16(variants, 10 + ((horizontal ? verticalCount : 0) + index) * 2);
         if (constructionOffset < offsetsEnd || variants.Length - constructionOffset < 4) { return false; }
         construction = variants.Slice(constructionOffset);
-        int count = U16(construction, 2);
-        return construction.Length - 4 >= count * 4;
+        return construction.Length - 4 >= U16(construction, 2) * 4;
     }
 }

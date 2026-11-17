@@ -683,10 +683,11 @@ internal sealed partial class DocxReader
             WordprocessingNamespace + "ins",
             WordprocessingNamespace + "moveTo"
         ];
+        // Revisions inside equations belong to the math parser, which applies the markup mode.
         return visibleTrackedChangeContainers.Any(containerName =>
-            document.Descendants(containerName).Any(container =>
-                !IsSupportedInlineContainerParent(container.Parent) ||
-                container.Elements().Any(child => !IsSupportedVisibleInlineContainerChild(child))));
+            document.Descendants(containerName).Any(container => container.Parent?.Name.Namespace != MathNamespace &&
+                (!IsSupportedInlineContainerParent(container.Parent) ||
+                 container.Elements().Any(child => !IsSupportedVisibleInlineContainerChild(child)))));
     }
 
     private static bool HasFormattingTrackedChanges(XDocument document)

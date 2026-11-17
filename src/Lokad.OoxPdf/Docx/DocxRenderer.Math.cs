@@ -126,6 +126,7 @@ internal sealed partial class DocxRenderer
             Dictionary<ushort, int> AssemblyParts, HashSet<int> Characters)>(ReferenceEqualityComparer.Instance);
         var controlKeys = new Dictionary<IDocxMathControl, (string StableId, int FaceIndex)>(ReferenceEqualityComparer.Instance);
         var unavailableControlFaces = new HashSet<OpenTypeFont>(ReferenceEqualityComparer.Instance);
+        var generalSources = new List<(DocxParagraph Paragraph, DocxEquation Equation, DocxEquation Source)>();
         foreach (var owner in DocxMathParagraphPolicy.EnumeratePreparationCandidates(document, token, includePageCountDependencies: true)
             .Select(paragraph => (Paragraph: paragraph, HasPageInputs: true, NeedsFinalCount: true))
             .Concat(DocxMathParagraphPolicy.EnumerateStaticPreparationCandidates(document, token)
@@ -162,6 +163,7 @@ internal sealed partial class DocxRenderer
                     ReferenceEquals(sourceEquation.LimitSettings, document.Settings.MathLimitSettings)
                     ? sourceEquation : sourceEquation with { Display = displayStyle,
                         LimitSettings = document.Settings.MathLimitSettings };
+                generalSources.Add((paragraph, equation, sourceEquation));
                 if (!DocxMathLayout.TryGetRuns(equation, token, out IReadOnlyList<DocxMathRunSource> mathRuns)) { continue; }
                 var controls = DocxMathLayout.GetControlSources(equation, token);
                 var metricControls = DocxMathLayout.GetMetricOnlyControls(equation, mathRuns, token, controls);
@@ -340,6 +342,8 @@ internal sealed partial class DocxRenderer
             if (TryPrepareMathParagraph(candidate.Paragraph, candidate.Equation, candidate.SourceEquation, box, token, out var prepared))
                 layouts.Add(candidate.SourceEquation, prepared!);
         }
+        PrepareGeneralMathEquations(document, resolver, fontCache, resources,
+            generalSources.Where(source => !layouts.ContainsKey(source.Source)).ToArray(), layouts, token);
         return layouts;
     }
 

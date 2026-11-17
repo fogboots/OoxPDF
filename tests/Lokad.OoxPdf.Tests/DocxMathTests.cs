@@ -274,8 +274,8 @@ internal static class DocxMathTests
             "An orphan function-name role retains its source instead of becoming an ordinary renderable row.");
         var row = Parse(XElement.Parse($"<m:oMath xmlns:m='{MathNamespace}'><m:func><m:fName><m:limLow><m:e><m:r><m:t>lim</m:t></m:r></m:e><m:lim><m:r><m:t>n</m:t></m:r></m:lim></m:limLow></m:fName><m:e><m:r><m:t>x</m:t></m:r></m:e></m:func></m:oMath>"));
         var function = (DocxMathFunction)row.Children.Single();
-        TestAssert.True(function.Name.Children.Single() is DocxMathUnsupported { ElementName: "limLow", SourceXml: not null },
-            "Unqualified function-name structures retain their original leaf source.");
+        TestAssert.True(function.Name.Children.Single() is DocxMathUnsupported { ElementName: "limLow", SourceXml: null, Children.Count: 2 },
+            "Unqualified function-name structures parse their roles so the general layout keeps their content.");
         TestAssert.Equal("x", RowText(function.Argument));
     }
 

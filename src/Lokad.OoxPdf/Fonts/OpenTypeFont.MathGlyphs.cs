@@ -61,6 +61,28 @@ internal sealed partial class OpenTypeFont
         return true;
     }
 
+    // Horizontal position (design units) where a top accent attaches; false when the
+    // glyph has no explicit attachment and callers should use its ink center.
+    public bool TryGetMathTopAccentAttachment(ushort glyph, out short attachment)
+    {
+        attachment = 0;
+        if (glyph >= GlyphCount || !tables.TryGetValue("MATH", out TableRecord math)) { return false; }
+        ReadOnlySpan<byte> table = bytes.AsSpan(math.Offset, math.Length);
+        if (table.Length < 10 || U16(table, 0) != 1 || U16(table, 2) != 0) { return false; }
+        int infoOffset = U16(table, 6);
+        if (infoOffset < 10 || table.Length - infoOffset < 8) { return false; }
+        ReadOnlySpan<byte> info = table.Slice(infoOffset);
+        int accentOffset = U16(info, 2);
+        if (accentOffset < 8 || info.Length - accentOffset < 4) { return false; }
+        ReadOnlySpan<byte> accents = info.Slice(accentOffset);
+        int coverageOffset = U16(accents, 0), count = U16(accents, 2);
+        int recordsEnd = 4 + count * 4;
+        if (accents.Length < recordsEnd || coverageOffset < recordsEnd || accents.Length - coverageOffset < 4 ||
+            !TryGetCoverageIndex(accents.Slice(coverageOffset), glyph, out int index) || index < 0 || index >= count) { return false; }
+        attachment = BinaryPrimitives.ReadInt16BigEndian(accents.Slice(4 + index * 4, 2));
+        return true;
+    }
+
     private static ushort U16(ReadOnlySpan<byte> table, int offset) => BinaryPrimitives.ReadUInt16BigEndian(table.Slice(offset, 2));
 
     internal static bool TryGetCoverageIndex(ReadOnlySpan<byte> coverage, ushort glyph, out int index)

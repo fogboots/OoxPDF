@@ -1485,28 +1485,41 @@ internal sealed partial class DocxLayoutEngine
 
             if (TryGetSinglePreparedMath(paragraph, mathEquations, out DocxPreparedMathParagraph? math) &&
                 DocxMathParagraphPolicy.GetStandaloneRow(paragraph) is not null &&
-                FitsMathDisplayWidth(paragraph, math, width, paragraphSpacingScale) &&
-                math.LineHeight * paragraphSpacingScale <= page.Height - page.MarginTop - page.MarginBottom)
+                (math.Box.IsGeneralLayout || math.Box.InlineBreakAfterGlyphs.Count != 0 ||
+                 math.LineHeight * paragraphSpacingScale <= page.Height - page.MarginTop - page.MarginBottom &&
+                 FitsMathDisplayWidth(paragraph, math, width, paragraphSpacingScale)))
             {
-                double advance = math.LineHeight * paragraphSpacingScale;
-                if (cursorY - advance < CurrentParagraphFrameBottom() && (HasCurrentColumnContent() || CanDrainFootnoteReserve()))
-                { AdvanceForOverflowingItem(advance, elementIndex, () => CurrentParagraphFrameBottom()); }
-                if (cursorY - advance >= CurrentParagraphFrameBottom())
+                double leftInset = GetParagraphTextStartOffset(paragraph, paragraphSpacingScale);
+                double areaWidth = width - leftInset - GetParagraphRightInset(paragraph, paragraphSpacingScale);
+                // A display equation wider than its column breaks after top-level operators, like Word.
+                IReadOnlyList<DocxPreparedMathParagraph> mathLines =
+                    FitsMathDisplayWidth(paragraph, math, width, paragraphSpacingScale)
+                        ? [math] : DocxMathLineBreaking.Split(math, areaWidth / paragraphSpacingScale, cancellationToken);
+                double bodyHeight = page.Height - page.MarginTop - page.MarginBottom;
+                foreach (DocxPreparedMathParagraph line in mathLines)
                 {
-                    double leftInset = GetParagraphTextStartOffset(paragraph, paragraphSpacingScale);
-                    double areaWidth = width - leftInset - GetParagraphRightInset(paragraph, paragraphSpacingScale);
-                    double boxWidth = math.Box.AdvanceWidth * paragraphSpacingScale;
-                    double alignment = math.Equation.AlignmentValue switch
-                    { "left" => 0d, "right" => areaWidth - boxWidth, _ => (areaWidth - boxWidth) / 2d };
-                    currentItems.Add(new DocxEquationLayout(math, x + leftInset + alignment,
-                        cursorY - math.BaselineInset * paragraphSpacingScale, paragraphSpacingScale, elementIndex, paragraph)
+                    // A line still wider than the column, or taller than the page, shrinks to fit
+                    // rather than losing content.
+                    double lineScale = paragraphSpacingScale * Math.Min(1d, Math.Min(
+                        areaWidth / Math.Max(1e-6, line.Box.Width * paragraphSpacingScale),
+                        bodyHeight / Math.Max(1e-6, math.LineHeight * paragraphSpacingScale)));
+                    double advance = math.LineHeight * lineScale;
+                    if (cursorY - advance < CurrentParagraphFrameBottom() && (HasCurrentColumnContent() || CanDrainFootnoteReserve()))
+                    { AdvanceForOverflowingItem(advance, elementIndex, () => CurrentParagraphFrameBottom()); }
+                    double boxWidth = line.Box.AdvanceWidth * lineScale;
+                    double alignment = mathLines.Count > 1 && !ReferenceEquals(line, mathLines[0])
+                        ? Math.Max(0d, areaWidth - boxWidth)
+                        : math.Equation.AlignmentValue switch
+                        { "left" => 0d, "right" => areaWidth - boxWidth, _ when mathLines.Count > 1 => 0d, _ => (areaWidth - boxWidth) / 2d };
+                    currentItems.Add(new DocxEquationLayout(line, x + leftInset + alignment,
+                        cursorY - math.BaselineInset * lineScale, lineScale, elementIndex, paragraph)
                         { FrameOriginOffsetX = -leftInset - alignment });
                     activeColumnHasContent = true;
                     cursorY -= advance;
-                    pendingSpacingAfter = spacingProfile.ParagraphAfterSpacing;
-                    previousParagraph = paragraph;
-                    continue;
                 }
+                pendingSpacingAfter = spacingProfile.ParagraphAfterSpacing;
+                previousParagraph = paragraph;
+                continue;
             }
 
             if (textMeasurer is not null && DocxMathParagraphPolicy.NeedsOrderedInlineLayout(paragraph, mathEquations))

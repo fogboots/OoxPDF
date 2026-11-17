@@ -38,6 +38,8 @@ internal sealed record DocxMathBox(
     // Complete supported boxes may move as a whole. Malformed literal groups
     // retain their source-line fallback until their placement is qualified.
     public bool AllowsInlineRelocation { get; init; } = true;
+    // Laid out by DocxMathGeneralLayout: display placement may break or fit it to the column.
+    public bool IsGeneralLayout { get; init; }
 }
 
 internal sealed record DocxMathMetricOwner(Lokad.OoxPdf.Fonts.OpenTypeFont Font, double Size)

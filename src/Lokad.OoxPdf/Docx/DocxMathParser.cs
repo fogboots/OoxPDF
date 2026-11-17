@@ -157,7 +157,7 @@ internal static partial class DocxMathParser
         }
     }
 
-    private static bool IsRow(string name) => name is "oMath" or "e" or "sub" or "sup" or "num" or "den" or "deg" or "fName";
+    private static bool IsRow(string name) => name is "oMath" or "e" or "sub" or "sup" or "num" or "den" or "deg" or "fName" or "lim";
     private static bool HasKnownControlProperty(XElement property) =>
         property.Name.Namespace == WordprocessingNamespace && !property.HasElements &&
         string.IsNullOrWhiteSpace(property.Value) && property.Name.LocalName is
@@ -169,7 +169,10 @@ internal static partial class DocxMathParser
     private static bool IsRevisionContent(XElement element) => element.Name.Namespace == MathNamespace &&
         (IsControl(element.Name.LocalName) || element.Name.LocalName == "r" &&
             element.Elements(MathNamespace + "t").Any(text => text.Value.Length != 0));
-    private static bool IsContainer(string name) => IsRow(name) || IsControl(name) || name == "mr";
+    private static bool IsContainer(string name) => IsRow(name) || IsControl(name) || name == "mr" || IsGeneralControl(name);
+    // Controls only the general layout draws; their children parse so no text is lost.
+    private static bool IsGeneralControl(string name) => name is "acc" or "bar" or "box" or "borderBox" or "eqArr" or
+        "groupChr" or "limLow" or "limUpp" or "phant" or "sPre";
     private static bool IsProperty(XElement element) => element.Name.Namespace == MathNamespace && element.Name.LocalName.EndsWith("Pr", StringComparison.Ordinal);
     private static IEnumerable<XElement> ContentChildren(XElement element) => element.Elements().Where(child => !IsProperty(child));
     private static bool HasOnlyRoles(XElement element, params string[] roles)
