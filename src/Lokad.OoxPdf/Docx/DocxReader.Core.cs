@@ -762,7 +762,20 @@ internal sealed partial class DocxReader
             return null;
         }
 
-        XDocument related = package.LoadXml(part, cancellationToken);
+        XDocument related;
+        try { related = package.LoadXml(part, cancellationToken); }
+        catch (InvalidDataException)
+        {
+            // Settings, styles, numbering and font tables only configure formatting:
+            // like Word's repair and LibreOffice, a damaged one falls back to defaults.
+            if (warnedParts?.Add("damaged:" + part.Name) != false)
+            {
+                diagnosticSink?.Invoke(new OoxPdfDiagnostic("DOCX_DAMAGED_PART_IGNORED", OoxPdfSeverity.Warning,
+                    "A damaged formatting part was ignored; its defaults apply.", part.Name,
+                    SlideIndex: null, PageIndex: null, Feature: "formatting part", Fallback: "Defaults"));
+            }
+            return null;
+        }
         OoxMarkupCompatibility.WarnMustUnderstandOnce(related, part.Name, diagnosticSink, warnedParts);
         return related;
     }
