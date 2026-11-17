@@ -50,6 +50,17 @@ internal static class DocxFontFallbackRules
         "Arial"
     ];
 
+    // Wide-coverage faces for scripts the Office families lack (CJK, Hangul, Hebrew,
+    // Arabic, emoji). Used only where installed, after the Office order above.
+    internal static readonly string[] CoverageFallbackFamilies =
+    [
+        "Droid Sans Fallback",
+        "NanumGothic",
+        "DejaVu Sans",
+        "Noto Sans Symbols 2",
+        "Noto Emoji"
+    ];
+
     public static IReadOnlyList<string> PerCharacterFallbackFamilies(string? primaryFamily)
     {
         var families = new List<string>();
@@ -80,6 +91,15 @@ internal static class DocxFontFallbackRules
         if (documentFallback is not null && !ContainsResolution(resolutions, documentFallback))
         {
             resolutions.Add(documentFallback);
+        }
+
+        foreach (string family in CoverageFallbackFamilies)
+        {
+            FontFaceResolution candidate = fontResolver.Resolve(new FontRequest(family, bold, italic));
+            if (!candidate.IsFallback && !ContainsResolution(resolutions, candidate))
+            {
+                resolutions.Add(candidate);
+            }
         }
 
         return resolutions;

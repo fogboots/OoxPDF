@@ -819,7 +819,7 @@ internal sealed partial class DocxRenderer
             }
             catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
             {
-                EmitImageDiagnostic(diagnosticSink, image, pageIndex, ex.Message);
+                EmitImageDiagnostic(diagnosticSink, image, pageIndex, ex);
             }
         }
 
@@ -831,10 +831,11 @@ internal sealed partial class DocxRenderer
         return imageResource;
     }
 
-    private static void EmitImageDiagnostic(Action<OoxPdfDiagnostic>? diagnosticSink, DocxInlineImage image, int pageIndex, string reason)
+    private static void EmitImageDiagnostic(Action<OoxPdfDiagnostic>? diagnosticSink, DocxInlineImage image, int pageIndex, Exception failure)
     {
+        string reason = failure.Message;
         diagnosticSink?.Invoke(new OoxPdfDiagnostic(
-            "IMAGE_UNSUPPORTED_FORMAT",
+            OoxImageDecoder.FailureDiagnosticId(failure, image.Bytes),
             OoxPdfSeverity.Error,
             $"Image '{image.ContentType}' could not be rendered and was ignored: {reason}",
             image.PartName,

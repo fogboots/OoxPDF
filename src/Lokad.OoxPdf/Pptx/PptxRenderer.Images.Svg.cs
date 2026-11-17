@@ -618,6 +618,21 @@ internal sealed partial class PptxRenderer
             double.IsFinite(value) && value >= 0d && value <= 1d ? value : null;
     }
 
+    // True when the SVG uses elements this renderer omits (text, filters, ...): an
+    // authored raster preview then shows the picture completely.
+    internal static bool SvgHasUnsupportedContent(byte[] bytes, CancellationToken cancellationToken)
+    {
+        XDocument svg;
+        try
+        {
+            using var stream = new MemoryStream(bytes);
+            svg = SafeXml.Load(stream, cancellationToken);
+        }
+        catch (InvalidDataException) { return true; }
+        return svg.Descendants().Any(element => !IsSupportedSvgElement(element.Name.LocalName) &&
+            !IsSvgDefinitionElement(element) && !IsInFullyTransparentSvgContainer(element));
+    }
+
     private static bool IsSupportedSvgElement(string name)
     {
         return name is "svg" or "defs" or "g" or "title" or "desc" or "metadata" or "style" or "path" or "rect" or "circle" or "ellipse" or "line" or "polyline" or "polygon" or "linearGradient" or "radialGradient" or "stop";

@@ -465,7 +465,13 @@ internal sealed class OoxPackage
 
     public OoxPart? GetPart(string partName)
     {
-        return parts.TryGetValue(OoxPath.NormalizePartName(partName), out OoxPart? part) ? part : null;
+        string normalized = OoxPath.NormalizePartName(partName);
+        if (parts.TryGetValue(normalized, out OoxPart? part)) { return part; }
+        // Producers disagree on whether ZIP item names keep a relationship target's
+        // percent-encoding (image%201.png against "image 1.png"): try the decoded form.
+        string decoded = Uri.UnescapeDataString(normalized);
+        return decoded != normalized && parts.TryGetValue(decoded, out part) ? part
+            : parts.TryGetValue(Uri.EscapeDataString(normalized).Replace("%2F", "/", StringComparison.Ordinal), out part) ? part : null;
     }
 
     public IReadOnlyList<OoxRelationship> GetRelationships(string sourcePartName, CancellationToken cancellationToken)

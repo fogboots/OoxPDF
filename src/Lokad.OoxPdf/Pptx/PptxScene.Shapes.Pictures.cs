@@ -40,7 +40,7 @@ internal sealed partial class PptxSceneBuilder
         OoxPart? imagePart = package.GetPart(targetPartName);
         return imagePart is null
             ? null
-            : new PptxSceneImageResource(imagePart.Name, imagePart.ContentType, imagePart.Bytes);
+            : new PptxSceneImageResource(imagePart.Name, Lokad.OoxPdf.Imaging.OoxImageDecoder.ContentTypeOf(imagePart), imagePart.Bytes);
     }
 
     private static PptxScenePackageResource? ReadPackageResource(OoxPackage package, string? targetPartName)

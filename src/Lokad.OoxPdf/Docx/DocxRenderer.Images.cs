@@ -115,6 +115,12 @@ internal sealed partial class DocxRenderer
         int pageIndex, CancellationToken cancellationToken, Dictionary<string, PdfImageXObject?> imageCache, ref int imageIndex,
         EmfFontLookup metafileFonts)
     {
+        if (image.Bytes is { } svgBytes && image.RasterFallback is { } raster &&
+            image.ContentType.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase) &&
+            PptxRenderer.SvgHasUnsupportedContent(svgBytes, cancellationToken))
+        {
+            image = raster;
+        }
         if (image.Bytes is { } bytes && image.ContentType.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase))
         {
             Action<OoxPdfDiagnostic>? svgSink = diagnosticSink is null ? null : diagnostic =>
@@ -160,7 +166,7 @@ internal sealed partial class DocxRenderer
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
         {
             if (cacheKey is not null) imageCache.TryAdd(cacheKey, null);
-            EmitImageDiagnostic(diagnosticSink, image, pageIndex, ex.Message);
+            EmitImageDiagnostic(diagnosticSink, image, pageIndex, ex);
             return true;
         }
     }

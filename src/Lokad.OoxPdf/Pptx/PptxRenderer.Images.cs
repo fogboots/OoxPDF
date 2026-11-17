@@ -534,7 +534,7 @@ internal sealed partial class PptxRenderer
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
         {
             diagnosticSink?.Invoke(new OoxPdfDiagnostic(
-                "IMAGE_UNSUPPORTED_FORMAT",
+                OoxImageDecoder.FailureDiagnosticId(ex, bytes),
                 OoxPdfSeverity.Error,
                 $"Image '{contentType}' could not be rendered and was ignored: {ex.Message}",
                 partName,

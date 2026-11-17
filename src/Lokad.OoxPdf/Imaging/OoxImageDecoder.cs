@@ -36,6 +36,32 @@ internal static class OoxImageDecoder
         contentType.Equals("image/x-wmf", StringComparison.OrdinalIgnoreCase) ||
         contentType.Equals("image/wmf", StringComparison.OrdinalIgnoreCase);
 
+    // Office readers trust the bytes over [Content_Types].xml: pictures saved with
+    // the wrong extension (a PNG named .jpeg, a GIF in a .tmp part) still display.
+    public static string ContentTypeOf(Lokad.OoxPdf.Ooxml.OoxPart part) => Sniff(part.Bytes) ?? part.ContentType;
+
+    public static string? Sniff(ReadOnlySpan<byte> b)
+    {
+        if (b.Length >= 8 && b[..8].SequenceEqual((ReadOnlySpan<byte>)[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) return "image/png";
+        if (b.Length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) return "image/jpeg";
+        if (b.Length >= 6 && (b[..6].SequenceEqual("GIF87a"u8) || b[..6].SequenceEqual("GIF89a"u8))) return "image/gif";
+        if (b.Length >= 26 && b[0] == 'B' && b[1] == 'M') return "image/bmp";
+        if (b.Length >= 8 && (b[..4].SequenceEqual("II*\0"u8) || b[..4].SequenceEqual("MM\0*"u8))) return "image/tiff";
+        if (b.Length >= 12 && b[..4].SequenceEqual("RIFF"u8) && b[8..12].SequenceEqual("WEBP"u8)) return "image/webp";
+        if (b.Length >= 44 && b[0] == 1 && b[1] == 0 && b[2] == 0 && b[3] == 0 && b[40..44].SequenceEqual(" EMF"u8)) return "image/x-emf";
+        if (b.Length >= 4 && b[0] == 0xD7 && b[1] == 0xCD && b[2] == 0xC6 && b[3] == 0x9A) return "image/x-wmf";
+        if (b.Length >= 18 && b[0] is 1 or 2 && b[1] == 0 && b[2] == 9 && b[3] == 0 && b[5] is 1 or 3) return "image/x-wmf";
+        ReadOnlySpan<byte> head = b[..Math.Min(b.Length, 1024)];
+        if (head.IndexOf("<svg"u8) >= 0 && (head.TrimStart(" \t\r\n"u8).StartsWith("<"u8) || head.StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF]))) return "image/svg+xml";
+        return null;
+    }
+
+    // Damaged bytes (empty, or a recognized format whose data is truncated or invalid)
+    // cannot be drawn by any reader; an unrecognized or unimplemented format can.
+    public static string FailureDiagnosticId(Exception failure, ReadOnlySpan<byte> bytes) =>
+        bytes.IsEmpty || failure is InvalidDataException && Sniff(bytes) is not null
+            ? "IMAGE_CORRUPT_DATA" : "IMAGE_UNSUPPORTED_FORMAT";
+
     public static bool IsSupportedContentType(string contentType) =>
         IsJpegContentType(contentType) || IsPngContentType(contentType) || IsBmpContentType(contentType) || IsTiffContentType(contentType) ||
         IsGifContentType(contentType) || IsMetafileContentType(contentType);

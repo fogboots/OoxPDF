@@ -1,6 +1,7 @@
 namespace Lokad.OoxPdf.Imaging;
 
-// Baseline, strip-organized 8-bit RGB/RGBA TIFF. No native codecs or external I/O.
+// Baseline strip-organized TIFF: bilevel, gray, palette and RGB(A) samples, uncompressed,
+// LZW, Deflate or PackBits. No native codecs or external I/O.
 internal static class TiffImage
 {
     public static DecodedPixels ReadOwned(byte[] bytes, CancellationToken cancellationToken = default)
@@ -57,57 +58,138 @@ internal static class TiffImage
         int width = Scalar(256, 0), height = Scalar(257, 0), samples = Scalar(277, 1);
         if (width < 1 || height < 1 || (long)width * height > 32_000_000)
             throw new InvalidDataException("TIFF dimensions exceed the pixel budget.");
-        int compression = Scalar(259, 1), predictor = Scalar(317, 1);
+        int compression = Scalar(259, 1), predictor = Scalar(317, 1), photometric = Scalar(262, 2);
         uint[] bits = Values(258, 1);
-        if (samples is not (3 or 4) || bits.Length != samples || bits.Any(b => b != 8) ||
-            Scalar(262, 0) != 2 || Scalar(284, 1) != 1 || Scalar(274, 1) != 1 ||
+        int depth = bits.Length == 0 ? 1 : (int)bits[0];
+        bool layout = photometric switch
+        {
+            0 or 1 => samples is 1 or 2 && depth is 1 or 4 or 8 or 16,
+            2 => samples is 3 or 4 && depth is 8 or 16,
+            3 => samples == 1 && depth is 1 or 4 or 8,
+            _ => false,
+        };
+        if (!layout || bits.Any(b => b != depth) || Scalar(284, 1) != 1 || Scalar(274, 1) != 1 ||
             Scalar(266, 1) != 1 || Values(339, 1).Any(v => v != 1) ||
-            compression is not (1 or 5) || predictor is not (1 or 2))
+            compression is not (1 or 5 or 8 or 32946 or 32773) || predictor is not (1 or 2) || predictor == 2 && depth != 8)
             throw new NotSupportedException("Unsupported TIFF pixel layout or compression.");
-        int alphaKind = samples == 4 ? Scalar(338, 0) : 0;
-        if (samples == 4 && alphaKind is not (1 or 2)) throw new NotSupportedException("Unsupported TIFF alpha layout.");
+        int alphaKind = samples is 2 or 4 ? Scalar(338, 0) : 0;
+        if (samples is 2 or 4 && alphaKind is not (0 or 1 or 2)) throw new NotSupportedException("Unsupported TIFF alpha layout.");
+        bool hasAlpha = samples is 2 or 4 && alphaKind != 0;
+        uint[] palette = photometric == 3 ? Values(320) : [];
+        if (photometric == 3 && palette.Length != 3 << depth) throw new InvalidDataException("Invalid TIFF color map.");
         int rows = Scalar(278, (uint)height);
         if (rows < 1) throw new InvalidDataException("Invalid TIFF strip height.");
         uint[] offsets = Values(273), lengths = Values(279);
         int strips = (int)(((long)height + rows - 1) / rows);
         if (offsets.Length != strips || lengths.Length != strips) throw new InvalidDataException("Invalid TIFF strip count.");
         byte[] rgb = new byte[width * height * 3];
-        byte[]? alpha = samples == 4 ? new byte[width * height] : null;
+        byte[]? alpha = hasAlpha ? new byte[width * height] : null;
+        int stride = (int)(((long)width * samples * depth + 7) / 8);
         int row = 0;
         for (int strip = 0; strip < strips; strip++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            int stripRows = Math.Min(rows, height - row), stride = width * samples;
+            int stripRows = Math.Min(rows, height - row);
             int expected = stripRows * stride;
             int start = Offset(offsets[strip]), length = Offset(lengths[strip]);
             Range(start, length);
-            byte[] pixels;
-            if (compression == 1)
+            ReadOnlySpan<byte> source = bytes.AsSpan(start, length);
+            byte[] pixels = compression switch
             {
-                if (length != expected) throw new InvalidDataException("Invalid TIFF strip length.");
-                pixels = bytes.AsSpan(start, length).ToArray();
-            }
-            else pixels = DecodeLzw(bytes.AsSpan(start, length), expected, cancellationToken);
+                1 when length >= expected => source[..expected].ToArray(),
+                1 => throw new InvalidDataException("Invalid TIFF strip length."),
+                5 => DecodeLzw(source, expected, cancellationToken),
+                8 or 32946 => Inflate(source, expected),
+                _ => UnpackBits(source, expected),
+            };
             for (int y = 0; y < stripRows; y++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 int line = y * stride;
                 if (predictor == 2)
-                    for (int x = samples; x < stride; x++) pixels[line + x] = unchecked((byte)(pixels[line + x] + pixels[line + x - samples]));
+                    for (int x = samples; x < width * samples; x++) pixels[line + x] = unchecked((byte)(pixels[line + x] + pixels[line + x - samples]));
                 for (int x = 0; x < width; x++)
                 {
-                    int src = line + x * samples, dst = (row + y) * width + x;
-                    int a = samples == 4 ? pixels[src + 3] : 255;
+                    int dst = (row + y) * width + x;
+                    int Sample(int channel)
+                    {
+                        long bit = (long)(x * samples + channel) * depth;
+                        int at = line + (int)(bit / 8);
+                        return depth switch
+                        {
+                            16 => little ? pixels[at + 1] : pixels[at],
+                            8 => pixels[at],
+                            4 => (pixels[at] >> (4 - (int)(bit % 8))) & 0x0F,
+                            _ => (pixels[at] >> (7 - (int)(bit % 8))) & 1,
+                        };
+                    }
+                    int Scale(int value) => depth switch { 1 => value * 255, 4 => value * 17, _ => value };
+                    int r, g, b;
+                    int colorSamples = photometric == 2 ? 3 : 1;
+                    int a = hasAlpha ? Scale(Sample(colorSamples)) : 255;
+                    if (photometric == 3)
+                    {
+                        int index = Sample(0), entries = 1 << depth;
+                        (r, g, b) = ((int)(palette[index] >> 8), (int)(palette[entries + index] >> 8), (int)(palette[2 * entries + index] >> 8));
+                    }
+                    else if (photometric == 2) { (r, g, b) = (Sample(0), Sample(1), Sample(2)); }
+                    else
+                    {
+                        int gray = Scale(Sample(0));
+                        if (photometric == 0) gray = 255 - gray;
+                        (r, g, b) = (gray, gray, gray);
+                    }
                     if (alpha is not null) alpha[dst] = (byte)a;
+                    Span<int> color = [r, g, b];
                     for (int channel = 0; channel < 3; channel++)
                         rgb[dst * 3 + channel] = alphaKind == 1
-                            ? (byte)(a == 0 ? 0 : Math.Min(255, pixels[src + channel] * 255 / a))
-                            : pixels[src + channel];
+                            ? (byte)(a == 0 ? 0 : Math.Min(255, color[channel] * 255 / a))
+                            : (byte)color[channel];
                 }
             }
             row += stripRows;
         }
         return new DecodedPixels(width, height, rgb, alpha);
+    }
+
+    private static byte[] Inflate(ReadOnlySpan<byte> input, int expected)
+    {
+        byte[] output = new byte[expected];
+        using var stream = new System.IO.Compression.ZLibStream(new MemoryStream(input.ToArray()), System.IO.Compression.CompressionMode.Decompress);
+        int read = 0;
+        while (read < expected)
+        {
+            int n = stream.Read(output, read, expected - read);
+            if (n == 0) throw new InvalidDataException("Incomplete TIFF Deflate pixels.");
+            read += n;
+        }
+        return output;
+    }
+
+    private static byte[] UnpackBits(ReadOnlySpan<byte> input, int expected)
+    {
+        byte[] output = new byte[expected];
+        int read = 0, written = 0;
+        while (written < expected && read < input.Length)
+        {
+            int header = (sbyte)input[read++];
+            if (header >= 0)
+            {
+                int count = header + 1;
+                if (read + count > input.Length || written + count > expected) throw new InvalidDataException("Invalid TIFF PackBits run.");
+                input.Slice(read, count).CopyTo(output.AsSpan(written));
+                read += count; written += count;
+            }
+            else if (header != -128)
+            {
+                int count = 1 - header;
+                if (read >= input.Length || written + count > expected) throw new InvalidDataException("Invalid TIFF PackBits run.");
+                output.AsSpan(written, count).Fill(input[read++]);
+                written += count;
+            }
+        }
+        if (written != expected) throw new InvalidDataException("Incomplete TIFF PackBits pixels.");
+        return output;
     }
 
     // TIFF uses MSB-first LZW and early code-width changes (unlike GIF).

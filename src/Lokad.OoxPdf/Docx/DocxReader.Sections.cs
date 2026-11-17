@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Xml.Linq;
 using Lokad.OoxPdf.Diagnostics;
+using Lokad.OoxPdf.Imaging;
 using Lokad.OoxPdf.Ooxml;
 using Lokad.OoxPdf.Pptx;
 using static Lokad.OoxPdf.Ooxml.OoxNamespaces;
@@ -350,7 +351,7 @@ internal sealed partial class DocxReader
         if (previewId is null && vectorId is null) return null;
         OoxPart? previewPart = ResolvePart(previewId);
         OoxPart? vectorPart = ResolvePart(vectorId);
-        bool useVector = vectorPart?.ContentType.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase) == true;
+        bool useVector = vectorPart is not null && OoxImageDecoder.ContentTypeOf(vectorPart).Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase);
         OoxPart? imagePart = useVector ? vectorPart : previewPart;
         double width = OoxUnits.EmuToPoints(OoxXml.ParseRequiredLong(extent, "cx", "DOCX"));
         double height = OoxUnits.EmuToPoints(OoxXml.ParseRequiredLong(extent, "cy", "DOCX"));
@@ -374,10 +375,10 @@ internal sealed partial class DocxReader
         return Create(imagePart) with
         {
             RasterFallback = useVector && previewPart is not null && !ReferenceEquals(previewPart, vectorPart) &&
-                !previewPart.ContentType.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase) ? Create(previewPart) : null
+                !OoxImageDecoder.ContentTypeOf(previewPart).Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase) ? Create(previewPart) : null
         };
 
-        DocxInlineImage Create(OoxPart? part) => new(width, height, part?.ContentType ?? string.Empty, part?.Bytes,
+        DocxInlineImage Create(OoxPart? part) => new(width, height, part is null ? string.Empty : OoxImageDecoder.ContentTypeOf(part), part?.Bytes,
             part?.Name ?? (relationships.TryGetValue(previewId ?? vectorId!, out var relationship) ? relationship.ResolvedTarget : null))
         {
             Revisions = RevisionList(revision), Crop = crop, ClickTarget = clickTarget,
@@ -499,7 +500,7 @@ internal sealed partial class DocxReader
         return new DocxInlineImage(
             widthPoints,
             heightPoints,
-            imagePart?.ContentType ?? string.Empty,
+            imagePart is null ? string.Empty : OoxImageDecoder.ContentTypeOf(imagePart),
             imagePart?.Bytes,
             relationship.ResolvedTarget)
         {
