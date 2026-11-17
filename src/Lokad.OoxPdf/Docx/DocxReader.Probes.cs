@@ -475,16 +475,18 @@ internal sealed partial class DocxReader
     {
         return IsSupportedAnchorPosition(
             position,
-            static relativeFrom => relativeFrom is "page" or "margin" or "column",
-            static align => align is "left" or "center" or "right");
+            static relativeFrom => relativeFrom is "page" or "margin" or "column" or "character" or "leftmargin" or "rightmargin" or
+                "insidemargin" or "outsidemargin",
+            static align => align is "left" or "center" or "right" or "inside" or "outside");
     }
 
     private static bool IsSupportedVerticalAnchorPosition(XElement? position)
     {
         return IsSupportedAnchorPosition(
             position,
-            static relativeFrom => relativeFrom is "page" or "margin" or "paragraph",
-            static align => align is "top" or "center" or "bottom");
+            static relativeFrom => relativeFrom is "page" or "margin" or "paragraph" or "line" or "topmargin" or "bottommargin" or
+                "insidemargin" or "outsidemargin",
+            static align => align is "top" or "center" or "bottom" or "inside" or "outside");
     }
 
     private static bool IsSupportedAnchorPosition(

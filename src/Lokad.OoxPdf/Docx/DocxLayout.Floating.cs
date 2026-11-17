@@ -880,9 +880,10 @@ internal sealed partial class DocxLayoutEngine
 
         return alignValue?.ToLowerInvariant() switch
         {
-            "left" => new DocxAnchorPlacement(reference.Start, DocxAnchorPlacementSource.Align),
+            // Inside/outside follow single-sided pages: inside is the binding (left) edge.
+            "left" or "inside" => new DocxAnchorPlacement(reference.Start, DocxAnchorPlacementSource.Align),
             "center" => new DocxAnchorPlacement(reference.Start + Math.Max(0d, reference.Size - extentWidth.Value) / 2d, DocxAnchorPlacementSource.Align),
-            "right" => new DocxAnchorPlacement(reference.End - extentWidth.Value, DocxAnchorPlacementSource.Align),
+            "right" or "outside" => new DocxAnchorPlacement(reference.End - extentWidth.Value, DocxAnchorPlacementSource.Align),
             null when offset is not null => new DocxAnchorPlacement(reference.Start + offset.Value, DocxAnchorPlacementSource.Offset),
             "" when offset is not null => new DocxAnchorPlacement(reference.Start + offset.Value, DocxAnchorPlacementSource.Offset),
             _ => new DocxAnchorPlacement(null, DocxAnchorPlacementSource.Unsupported)
@@ -902,9 +903,9 @@ internal sealed partial class DocxLayoutEngine
 
         return alignValue?.ToLowerInvariant() switch
         {
-            "top" => new DocxAnchorPlacement(reference.Start, DocxAnchorPlacementSource.Align),
+            "top" or "inside" => new DocxAnchorPlacement(reference.Start, DocxAnchorPlacementSource.Align),
             "center" => new DocxAnchorPlacement(reference.End + (reference.Size + extentHeight.Value) / 2d, DocxAnchorPlacementSource.Align),
-            "bottom" => new DocxAnchorPlacement(reference.End + extentHeight.Value, DocxAnchorPlacementSource.Align),
+            "bottom" or "outside" => new DocxAnchorPlacement(reference.End + extentHeight.Value, DocxAnchorPlacementSource.Align),
             null when offset is not null => new DocxAnchorPlacement(reference.Start - offset.Value, DocxAnchorPlacementSource.Offset),
             "" when offset is not null => new DocxAnchorPlacement(reference.Start - offset.Value, DocxAnchorPlacementSource.Offset),
             _ => new DocxAnchorPlacement(null, DocxAnchorPlacementSource.Unsupported)
@@ -925,6 +926,13 @@ internal sealed partial class DocxLayoutEngine
         {
             "page" => new DocxAnchorReferenceFrame(0d, page.Width),
             "margin" => new DocxAnchorReferenceFrame(page.MarginLeft, page.Width - page.MarginRight),
+            // Margin areas on single-sided pages: inside is the left margin, outside the right.
+            "leftmargin" or "insidemargin" => new DocxAnchorReferenceFrame(0d, page.MarginLeft),
+            "rightmargin" or "outsidemargin" => new DocxAnchorReferenceFrame(page.Width - page.MarginRight, page.Width),
+            // Character positions are not tracked: a character anchor uses its column.
+            "character" when page.ColumnFrames.Count == 1 => new DocxAnchorReferenceFrame(page.ColumnFrames[0].X, page.ColumnFrames[0].X + page.ColumnFrames[0].Width),
+            "character" when sourceBlock?.FirstColumnIndex is { } characterColumn && characterColumn >= 0 && characterColumn < page.ColumnFrames.Count =>
+                new DocxAnchorReferenceFrame(page.ColumnFrames[characterColumn].X, page.ColumnFrames[characterColumn].X + page.ColumnFrames[characterColumn].Width),
             "column" when page.ColumnFrames.Count == 1 => new DocxAnchorReferenceFrame(page.ColumnFrames[0].X, page.ColumnFrames[0].X + page.ColumnFrames[0].Width),
             "column" when sourceBlock?.FirstColumnIndex is { } columnIndex && columnIndex >= 0 && columnIndex < page.ColumnFrames.Count =>
                 new DocxAnchorReferenceFrame(page.ColumnFrames[columnIndex].X, page.ColumnFrames[columnIndex].X + page.ColumnFrames[columnIndex].Width),
@@ -946,7 +954,10 @@ internal sealed partial class DocxLayoutEngine
         {
             "page" => new DocxAnchorReferenceFrame(page.Height, 0d),
             "margin" => new DocxAnchorReferenceFrame(page.Height - page.MarginTop, page.MarginBottom),
-            "paragraph" when sourceBlock is not null => new DocxAnchorReferenceFrame(sourceBlock.VerticalTop, sourceBlock.VerticalBottom),
+            "topmargin" or "insidemargin" => new DocxAnchorReferenceFrame(page.Height, page.Height - page.MarginTop),
+            "bottommargin" or "outsidemargin" => new DocxAnchorReferenceFrame(page.MarginBottom, 0d),
+            // Line positions are not tracked: a line anchor uses its paragraph's top.
+            "paragraph" or "line" when sourceBlock is not null => new DocxAnchorReferenceFrame(sourceBlock.VerticalTop, sourceBlock.VerticalBottom),
             _ => null
         };
     }
