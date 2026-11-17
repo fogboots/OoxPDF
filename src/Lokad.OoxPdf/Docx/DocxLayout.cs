@@ -1688,6 +1688,9 @@ internal sealed partial class DocxLayoutEngine
                             lineIndex == lines.Length - 1 ? spacingProfile.ParagraphAfterSpacing : 0d));
                     }
 
+                    // An advance above may have moved to another column or page: the line
+                    // starts in the frame it now occupies.
+                    paragraphX = x + (firstLine ? textStartOffset : continuationTextStartOffset);
                     cursorY -= extraAbove;
 
                     double lineInlineWidth = (midLinePlan?.LineImageWidths[lineIndex] ?? 0d) + (inlineMath?.LineIndex == lineIndex ? inlineMath.Width : 0d);
