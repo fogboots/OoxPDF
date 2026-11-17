@@ -2193,7 +2193,10 @@ internal sealed partial class DocxLayoutEngine
             double contentPaddingBottom = ResolveTableCellVerticalPadding(contentCell.Margins.BottomPoints, paragraphSpacingScale);
             var (cellTextLines, cellPlacedImages, cellPlacedBoxes, cellUsedHeight) = visualOwnership == DocxTableCellVisualOwnership.MissingVerticalMergeOwner
                 ? (Array.Empty<DocxTextLineLayout>(), Array.Empty<DocxInlineImageLayout>(), Array.Empty<DocxInlineTextBoxLayout>(), 0d)
-                : LayoutTableCellTextLines(contentCell, cellX, contentY, cellWidth, contentHeight, rowTopPadding, textMeasurer, defaultTabStopPoints, currentPageNumber, pageCount, paragraphSpacingScale, cellMemo, currentPageIndex, tableContext.MathEquations, tableContext.CancellationToken);
+                : RotatedTextQuarterTurns(contentCell) != 0
+                    // Rotated cells lay out across the cell height; painting turns them into place.
+                    ? LayoutTableCellTextLines(contentCell, cellX, contentY + contentHeight - cellWidth, contentHeight, cellWidth, rowTopPadding, textMeasurer, defaultTabStopPoints, currentPageNumber, pageCount, paragraphSpacingScale, null, currentPageIndex, tableContext.MathEquations, tableContext.CancellationToken)
+                    : LayoutTableCellTextLines(contentCell, cellX, contentY, cellWidth, contentHeight, rowTopPadding, textMeasurer, defaultTabStopPoints, currentPageNumber, pageCount, paragraphSpacingScale, cellMemo, currentPageIndex, tableContext.MathEquations, tableContext.CancellationToken);
             if (adjustAtLeastBodySpacing && FragmentCount == 1 && paragraphSpacingScale == 1d)
                 (cellTextLines, cellPlacedImages) = AdjustTableMinimumLinePlacement(table, row, contentCell, cellTextLines, cellPlacedImages, textMeasurer,
                     contentHeight, rowTopPadding, cellUsedHeight, rowIndex == table.Rows.Count - 1,

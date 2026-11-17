@@ -628,7 +628,22 @@ internal sealed partial class DocxReader
     private static bool IsUnsupportedTableCellTextDirection(XElement textDirection)
     {
         string? value = (string?)textDirection.Attribute(WordprocessingNamespace + "val");
-        return value is not null && !value.Equals("lrTb", StringComparison.OrdinalIgnoreCase);
+        if (value is null or "lrTb") return false;
+        // A table cell's text turns a quarter as long as it is only text: pictures, text
+        // boxes and nested tables are not rotated with it. Section-level vertical text and
+        // the East Asian vertical variants (upright CJK glyphs) are still approximated.
+        XElement? cell = textDirection.Parent is { } properties && properties.Name == WordprocessingNamespace + "tcPr"
+            ? properties.Parent
+            : null;
+        return value is not ("btLr" or "tbRl") || cell is null || cell.Descendants().Any(IsNonTextCellContent);
+    }
+
+    private static bool IsNonTextCellContent(XElement element)
+    {
+        return element.Name == WordprocessingNamespace + "drawing" ||
+            element.Name == WordprocessingNamespace + "pict" ||
+            element.Name == WordprocessingNamespace + "object" ||
+            element.Name == WordprocessingNamespace + "tbl";
     }
 
     private static bool HasUnsupportedTrackedChanges(XDocument document)

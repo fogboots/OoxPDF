@@ -2240,7 +2240,7 @@ internal static class DocxTablesMarkupTests
                     <w:tbl>
                       <w:tblGrid><w:gridCol w:w="1440"/></w:tblGrid>
                       <w:tr>
-                        <w:tc><w:tcPr><w:textDirection w:val="tbRl"/></w:tcPr><w:p><w:r><w:t>Rotated</w:t></w:r></w:p></w:tc>
+                        <w:tc><w:tcPr><w:textDirection w:val="tbRlV"/></w:tcPr><w:p><w:r><w:t>Rotated</w:t></w:r></w:p></w:tc>
                       </w:tr>
                     </w:tbl>
                     <w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr>
@@ -2255,7 +2255,7 @@ internal static class DocxTablesMarkupTests
 
         TestAssert.True(
             diagnostics.Any(d => d.Id == "DOCX_TABLE_TEXT_DIRECTION" && d.PartName == "/word/document.xml" && d.Fallback == "Approximated"),
-            "Unsupported DOCX table cell text directions should emit a diagnostic while layout support is still approximate.");
+            "East Asian vertical cell text is still approximated by rotation and should emit a diagnostic.");
     }
 
     public static void DocxSupportedTableStyleAtomsDoNotEmitBroadTableStyleDiagnostic()

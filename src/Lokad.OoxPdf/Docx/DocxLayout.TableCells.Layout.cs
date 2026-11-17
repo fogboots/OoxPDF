@@ -125,6 +125,19 @@ internal sealed partial class DocxLayoutEngine
         return measured;
     }
 
+    // Cells whose text runs along the cell height: bottom to top, or top to bottom
+    // (the vertical East Asian variants keep that line direction).
+    internal static int RotatedTextQuarterTurns(DocxTableCell cell) => cell.TextDirectionValue switch
+    {
+        "btLr" => 1,
+        "tbRl" or "tbRlV" or "tbLrV" => -1,
+        _ => 0,
+    };
+
+    // Lines of a rotated cell wrap along the cell height, which Word grows to fit the
+    // text: the cell needs its longest line's length, up to a page body.
+    private const double RotatedCellMaximumLengthPoints = 640d;
+
     private static DocxTableCellContentHeight MeasureTableCellContentHeightCore(
         DocxTableCell cell,
         double cellWidth,
@@ -137,6 +150,17 @@ internal sealed partial class DocxLayoutEngine
         IReadOnlyDictionary<DocxEquation, DocxPreparedMathParagraph>? mathEquations,
         CancellationToken cancellationToken)
     {
+        if (RotatedTextQuarterTurns(cell) != 0)
+        {
+            var (lines, _, _, _) = LayoutTableCellTextLines(cell, 0d, 0d, RotatedCellMaximumLengthPoints, RotatedCellMaximumLengthPoints,
+                rowTopPadding ?? 0d, textMeasurer, defaultTabStopPoints, pageNumber, pageCount, paragraphSpacingScale,
+                mathEquations: mathEquations, cancellationToken: cancellationToken);
+            double length = lines.Count == 0 ? 0d : lines.Max(line => line.X + line.Width) - lines.Min(line => line.X);
+            double insets = ResolveTableCellHorizontalEdgeInset(cell, "left", cell.Margins.LeftPoints, paragraphSpacingScale) +
+                ResolveTableCellHorizontalEdgeInset(cell, "right", cell.Margins.RightPoints, paragraphSpacingScale);
+            return new DocxTableCellContentHeight(length + insets, 0d);
+        }
+
         var measureContext = new DocxTableCellLayoutContext(
             TextMeasurer: textMeasurer,
             DefaultTabStopPoints: defaultTabStopPoints,

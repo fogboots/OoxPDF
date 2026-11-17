@@ -104,11 +104,23 @@ internal sealed partial class DocxRenderer
                 graphics.SaveState();
                 DocxTableCellClipSnapshot clip = ResolveTableCellContentClip(geometryRow, geometryCell);
                 graphics.ClipRectangle(clip.X, clip.Y, clip.Width, clip.Height);
+                int quarterTurns = DocxLayoutEngine.RotatedTextQuarterTurns(cellLayout.Cell);
+                if (quarterTurns != 0)
+                {
+                    // Lines were laid out across the cell height from the cell's top-left
+                    // corner: a quarter turn maps that frame onto the cell (btLr reads
+                    // upward with lines left to right, tbRl downward with lines right to left).
+                    double left = cellLayout.X, top = cellLayout.Y + cellLayout.Height, bottom = cellLayout.Y;
+                    graphics.SaveState();
+                    if (quarterTurns > 0) graphics.Transform(0d, 1d, -1d, 0d, left + top, bottom - left);
+                    else graphics.Transform(0d, -1d, 1d, 0d, left + cellLayout.Width - top, top + left);
+                }
                 foreach (DocxTextLineLayout line in cellLayout.TextLines)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     RenderTextLine(line, graphics, fontResources, markupContext, pageNumber, pageCount, cancellationToken);
                 }
+                if (quarterTurns != 0) graphics.RestoreState();
 
                 foreach (DocxInlineImageLayout image in cellLayout.InlineImages)
                 {

@@ -216,9 +216,11 @@ internal static class OoxVmlDrawing
             XElement? imageData = shape.Element(V + "imagedata");
             XElement? textBox = shape.Element(V + "textbox");
             XElement? textPath = shape.Element(V + "textpath");
-            bool picture = imageData is not null && textBox is null && textPath is null &&
-                (string?)(imageData.Attribute(R + "id") ?? imageData.Attribute(O + "relid")) is not null;
-            if (picture) { return Picture(shape, imageData!, x, y, cx, cy, child); }
+            if (imageData is not null && textBox is null && textPath is null &&
+                (string?)(imageData.Attribute(R + "id") ?? imageData.Attribute(O + "relid")) is { } relationshipId)
+            {
+                return Picture(shape, imageData, relationshipId, x, y, cx, cy, child);
+            }
             var properties = new XElement(Wps + "spPr", Transform(style, x, y, cx, cy, flipFromLine: shape));
             XElement? geometry = Geometry(shape, type, cx, cy);
             if (geometry is null) { return null; }
@@ -286,9 +288,8 @@ internal static class OoxVmlDrawing
             return converted == 0 ? null : result;
         }
 
-        private XElement Picture(XElement shape, XElement imageData, long x, long y, long cx, long cy, bool child)
+        private XElement Picture(XElement shape, XElement imageData, string id, long x, long y, long cx, long cy, bool child)
         {
-            string id = (string?)(imageData.Attribute(R + "id") ?? imageData.Attribute(O + "relid"))!;
             static long Crop(XElement data, string name) => (long)Math.Round(Fraction((string?)data.Attribute(name)) * 100000d);
             var source = new XElement(A + "srcRect");
             foreach (var (attribute, edge) in new[] { ("cropleft", "l"), ("croptop", "t"), ("cropright", "r"), ("cropbottom", "b") })
