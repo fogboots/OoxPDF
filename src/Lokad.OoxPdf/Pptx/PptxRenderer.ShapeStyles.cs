@@ -27,7 +27,7 @@ internal sealed partial class PptxRenderer
     private static ShapePictureFill? ToShapePictureFill(PptxSceneShapePictureFill fill)
     {
         return fill.HasPicture
-            ? new ShapePictureFill(fill.RelationshipId, fill.TargetPartName, fill.Resource, ToCropRect(fill.Crop), ToFillRect(fill.Fill), fill.Alpha)
+            ? new ShapePictureFill(fill.RelationshipId, fill.TargetPartName, fill.Resource, ToCropRect(fill.Crop), ToFillRect(fill.Fill), fill.Alpha, fill.Tile)
             : null;
     }
 
@@ -624,7 +624,8 @@ internal sealed partial class PptxRenderer
         PptxSceneImageResource? Resource,
         CropRect Crop,
         FillRect Fill,
-        double Alpha);
+        double Alpha,
+        PptxScenePictureTile Tile = default);
 
     private readonly record struct Glow(RgbColor Color, double Alpha, double Radius);
 

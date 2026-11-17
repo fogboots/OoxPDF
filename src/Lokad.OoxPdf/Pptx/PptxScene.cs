@@ -293,7 +293,12 @@ internal sealed partial class PptxSceneBuilder
                 ReadShowMasterShapes(slideXml),
                 masterXml is null ? [] : ReadNodes(masterXml, [], theme, masterColorMap, package, masterRelationships, cancellationToken),
                 layoutXml is null ? [] : ReadNodes(layoutXml, layoutSources, theme, layoutColorMap, package, layoutRelationships, cancellationToken),
-                ReadNodes(slideXml, slideSources, theme, slideColorMap, package, slideRelationships, cancellationToken)));
+                ReadNodes(slideXml, slideSources, theme, slideColorMap, package, slideRelationships, cancellationToken))
+            {
+                BackgroundNodes = ReadBackgroundNodes(
+                    [(slideXml, slideRelationships, slideColorMap), (layoutXml, layoutRelationships, layoutColorMap), (masterXml, masterRelationships, masterColorMap)],
+                    document, theme, package, cancellationToken)
+            });
         }
 
         return new PptxScene(document, theme, slides);
@@ -375,6 +380,36 @@ internal sealed partial class PptxSceneBuilder
         }
 
         return nodes;
+    }
+
+    // The most specific part that declares a background owns it. A non-solid fill
+    // becomes a full-slide rectangle so the shape fill pipeline paints it.
+    private static IReadOnlyList<PptxSceneNode> ReadBackgroundNodes(
+        IEnumerable<(XDocument? Xml, IReadOnlyDictionary<string, OoxRelationship> Relationships, PptxColorMap ColorMap)> owners,
+        PptxDocument document, PptxTheme theme, OoxPackage package, CancellationToken cancellationToken)
+    {
+        foreach (var (xml, relationships, colorMap) in owners)
+        {
+            XElement? background = xml?.Root?.Element(PresentationNamespace + "cSld")?.Element(PresentationNamespace + "bg");
+            if (background is null) { continue; }
+            XElement? fill = background.Element(PresentationNamespace + "bgPr")?.Elements()
+                .FirstOrDefault(e => e.Name.LocalName is "gradFill" or "blipFill" or "pattFill");
+            if (fill is null) { return []; }
+            long width = (long)Math.Round(document.SlideWidthPoints * 12700d), height = (long)Math.Round(document.SlideHeightPoints * 12700d);
+            var shape = new XElement(PresentationNamespace + "sp",
+                new XElement(PresentationNamespace + "nvSpPr",
+                    new XElement(PresentationNamespace + "cNvPr", new XAttribute("id", 0), new XAttribute("name", "Background")),
+                    new XElement(PresentationNamespace + "cNvSpPr"), new XElement(PresentationNamespace + "nvPr")),
+                new XElement(PresentationNamespace + "spPr",
+                    new XElement(DrawingNamespace + "xfrm",
+                        new XElement(DrawingNamespace + "off", new XAttribute("x", 0), new XAttribute("y", 0)),
+                        new XElement(DrawingNamespace + "ext", new XAttribute("cx", width), new XAttribute("cy", height))),
+                    new XElement(DrawingNamespace + "prstGeom", new XAttribute("prst", "rect"), new XElement(DrawingNamespace + "avLst")),
+                    new XElement(fill),
+                    new XElement(DrawingNamespace + "ln", new XElement(DrawingNamespace + "noFill"))));
+            return ReadChildNodes(new XElement(PresentationNamespace + "spTree", shape), [], theme, colorMap, package, relationships, cancellationToken);
+        }
+        return [];
     }
 
     private static PptxSceneBackground ReadBackground(XDocument? xml, PptxTheme theme, PptxColorMap colorMap)

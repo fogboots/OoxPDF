@@ -253,6 +253,10 @@ internal sealed partial class PptxRenderer
         {
             DrawEmfPicture(graphics, emf, imageX, imageY, imageWidth, imageHeight, crop, images, ref index, imageResource.PartName, imageResource.ContentType, diagnosticSink, slideIndex, cancellationToken);
         }
+        else if (geometry.Tile.HasTile && image is not null)
+        {
+            DrawTiledImage(graphics, name, image, geometry.Tile, x, y, width, height);
+        }
         else if (crop.IsEmpty)
         {
             graphics.DrawImage(name, imageX, imageY, imageWidth, imageHeight);
@@ -862,6 +866,63 @@ internal sealed partial class PptxRenderer
         {
             graphics.ClipRectangle(x, y, width, height);
         }
+    }
+
+    // a:tile repeats the picture at its native size (96 dpi) scaled by sx/sy, from
+    // an alignment anchor plus tx/ty, mirroring alternate tiles per flip. A very
+    // fine texture grows its tile so the page keeps at most MaxTiles draws.
+    private static void DrawTiledImage(PdfGraphicsBuilder graphics, string imageName, PdfImageXObject image,
+        PptxScenePictureTile tile, double x, double y, double width, double height)
+    {
+        const int MaxTiles = 4096;
+        static double Read(string? value, double fallback) =>
+            double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) ? v : fallback;
+        double tileWidth = image.Width * 0.75d * Read(tile.ScaleXValue, 100000d) / 100000d;
+        double tileHeight = image.Height * 0.75d * Read(tile.ScaleYValue, 100000d) / 100000d;
+        if (!(tileWidth > 0.01d) || !(tileHeight > 0.01d) || width <= 0d || height <= 0d)
+        {
+            graphics.DrawImage(imageName, x, y, width, height);
+            return;
+        }
+        double count = Math.Ceiling(width / tileWidth + 1) * Math.Ceiling(height / tileHeight + 1);
+        if (count > MaxTiles)
+        {
+            double grow = Math.Sqrt(count / MaxTiles);
+            tileWidth *= grow;
+            tileHeight *= grow;
+        }
+        string alignment = tile.AlignmentValue ?? "tl";
+        double anchorX = alignment switch
+        {
+            "t" or "ctr" or "b" => x + (width - tileWidth) / 2d,
+            "tr" or "r" or "br" => x + width - tileWidth,
+            _ => x,
+        };
+        double anchorTop = alignment switch
+        {
+            "l" or "ctr" or "r" => y + height - (height - tileHeight) / 2d,
+            "bl" or "b" or "br" => y + tileHeight,
+            _ => y + height,
+        };
+        anchorX += Read(tile.OffsetXValue, 0d) / 12700d;
+        anchorTop -= Read(tile.OffsetYValue, 0d) / 12700d;
+        string flip = tile.FlipValue ?? "none";
+        bool flipX = flip is "x" or "xy", flipY = flip is "y" or "xy";
+        int firstColumn = (int)Math.Floor((x - anchorX) / tileWidth), lastColumn = (int)Math.Ceiling((x + width - anchorX) / tileWidth);
+        int firstRow = (int)Math.Floor((anchorTop - (y + height)) / tileHeight), lastRow = (int)Math.Ceiling((anchorTop - y) / tileHeight);
+        graphics.SaveState();
+        graphics.ClipRectangle(x, y, width, height);
+        for (int row = firstRow; row <= lastRow; row++)
+        {
+            for (int column = firstColumn; column <= lastColumn; column++)
+            {
+                double left = anchorX + column * tileWidth, bottom = anchorTop - (row + 1) * tileHeight;
+                bool mirrorX = flipX && (column & 1) != 0, mirrorY = flipY && (row & 1) != 0;
+                graphics.DrawImage(imageName, mirrorX ? left + tileWidth : left, mirrorY ? bottom + tileHeight : bottom,
+                    mirrorX ? -tileWidth : tileWidth, mirrorY ? -tileHeight : tileHeight);
+            }
+        }
+        graphics.RestoreState();
     }
 
     private static void DrawImageFill(PdfGraphicsBuilder graphics, string imageName, double x, double y, double width, double height, CropRect crop)

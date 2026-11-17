@@ -28,7 +28,12 @@ internal sealed record PptxSceneSlide(
     bool ShowMasterShapes,
     IReadOnlyList<PptxSceneNode> MasterNodes,
     IReadOnlyList<PptxSceneNode> LayoutNodes,
-    IReadOnlyList<PptxSceneNode> SlideNodes);
+    IReadOnlyList<PptxSceneNode> SlideNodes)
+{
+    // A picture, gradient or pattern background painted as a full-slide shape;
+    // solid backgrounds stay in the Background colors above.
+    public IReadOnlyList<PptxSceneNode> BackgroundNodes { get; init; } = [];
+}
 
 internal readonly record struct PptxSceneBackground(
     bool HasFill,

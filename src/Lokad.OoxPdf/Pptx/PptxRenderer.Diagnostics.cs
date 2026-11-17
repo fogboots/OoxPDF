@@ -143,8 +143,6 @@ internal sealed partial class PptxRenderer
                 EmitTextOverflow(nodePartName);
             if (HasUnsupportedPictureFill(renderedNodes))
                 Emit("PPTX_UNSUPPORTED_PICTURE_FILL", "picture fill", nodePartName);
-            if (HasTiledImageFill(renderedNodes))
-                Emit("PPTX_UNSUPPORTED_IMAGE_TILE", "tiled image fill", nodePartName);
             if (HasUnsupportedShapeTransparency(renderedNodes))
                 Emit("PPTX_UNSUPPORTED_TRANSPARENCY", "transparency", nodePartName);
             if (HasUnsupportedEffect(renderedNodes))
@@ -154,20 +152,6 @@ internal sealed partial class PptxRenderer
             if (HasUnsupportedCallout(renderedNodes))
                 Emit("PPTX_UNSUPPORTED_CALLOUT", "callout shape", nodePartName);
         }
-    }
-
-    private static bool HasTiledImageFill(IEnumerable<PptxSceneNode> nodes)
-    {
-        foreach (PptxSceneNode node in nodes)
-        {
-            if (node.Picture?.Tile.HasTile == true ||
-                node.Shape?.PictureFill.Tile.HasTile == true)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static bool HasUnsupportedPictureFill(IEnumerable<PptxSceneNode> nodes)

@@ -83,6 +83,7 @@ internal sealed partial class PptxRenderer
             AddSplitFallbackFaces(slideFonts, shapeTextSpans.Concat(tableTextSpans), fontResolver, diagnosticSink, cancellationToken, slideResources, "F");
             renderedFonts = new RenderedFonts(slideFonts, slideResources);
 
+            RenderOrderedSceneNodes(context.SceneSlide.BackgroundNodes, context, graphics, renderedFonts.Fonts, orderedImages, orderedChartFonts, linkAnnotations, reportedHyperlinkIds, context.SlidePartName, context.SlideColorMap, ref imageIndex, GroupTransform.Identity, renderPlaceholders: true, cancellationToken: cancellationToken);
             // Hidden master shapes stay unpainted when the slide opts out (S01).
             if (context.SceneSlide.ShowMasterShapes)
             {

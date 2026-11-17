@@ -522,7 +522,10 @@ internal sealed partial class PptxRenderer
                 ClipToPresetShape(graphics, shapeProperties, preset, x, y, width, height, presetAdjustmentsOverride);
             }
 
-            DrawImageFill(graphics, pictureFillName, imageX, imageY, imageWidth, imageHeight, crop);
+            if (pictureFillOverride?.Tile is { HasTile: true } tile)
+                DrawTiledImage(graphics, pictureFillName, pictureFillImage, tile, x, y, width, height);
+            else
+                DrawImageFill(graphics, pictureFillName, imageX, imageY, imageWidth, imageHeight, crop);
 
             if (clippedToShape)
             {
