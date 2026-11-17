@@ -2258,6 +2258,46 @@ internal static class DocxTablesMarkupTests
             "East Asian vertical cell text is still approximated by rotation and should emit a diagnostic.");
     }
 
+    public static void DocxDeeplyNestedTablesRenderInTimeLinearInDepth()
+    {
+        // Each level once walked every table beneath it, doubling the work per level:
+        // 25 levels took 9 s and 30 exceeded a 30 s deadline. 40 levels must take well under a second.
+        string nested = "<w:p><w:r><w:t>Innermost cell</w:t></w:r></w:p>";
+        for (int level = 0; level < 40; level++)
+        {
+            int width = 9000 - level * 200;
+            nested = $"""<w:tbl><w:tblPr><w:tblW w:w="{width}" w:type="dxa"/></w:tblPr><w:tblGrid><w:gridCol w:w="{width}"/></w:tblGrid><w:tr><w:tc>{nested}</w:tc></w:tr></w:tbl><w:p/>""";
+        }
+
+        string input = TestFixtures.WriteTempPackage(".docx", new Dictionary<string, string>
+        {
+            ["[Content_Types].xml"] = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+                  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+                  <Default Extension="xml" ContentType="application/xml"/>
+                  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+                </Types>
+                """,
+            ["_rels/.rels"] = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+                </Relationships>
+                """,
+            ["word/document.xml"] = $"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{nested}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr></w:body></w:document>
+                """
+        });
+        string output = Path.ChangeExtension(Path.GetTempFileName(), ".pdf");
+
+        // The exponential walk ignores cancellation, so bound the wait from outside.
+        Task conversion = Task.Run(() => OoxPdfConverter.Convert(input, output));
+        TestAssert.True(conversion.Wait(TimeSpan.FromSeconds(5)), "Forty nested tables must convert within 5 s.");
+        TestAssert.True(new FileInfo(output).Length > 0, "Forty nested tables must produce a PDF.");
+    }
+
     public static void DocxSupportedTableStyleAtomsDoNotEmitBroadTableStyleDiagnostic()
     {
         string input = TestFixtures.WriteTempPackage(".docx", new Dictionary<string, string>

@@ -926,9 +926,11 @@ internal sealed partial class DocxRenderer
                     }
                 }
 
-                foreach (DocxTable nested in DocxBlockTraversal.EnumerateBodyTables(DocxTableCellContent.GetBodyElements(cell)))
+                // Direct children only: the recursion reaches deeper tables itself, and
+                // EnumerateBodyTables (all descendants) made each level rewalk its whole subtree.
+                foreach (DocxTableElement nested in DocxTableCellContent.GetBodyElements(cell).OfType<DocxTableElement>())
                 {
-                    if (TableSubtreeHasRevisionBalloon(nested, isMainStory))
+                    if (TableSubtreeHasRevisionBalloon(nested.Table, isMainStory))
                     {
                         return true;
                     }
