@@ -78,7 +78,10 @@ internal static class DocxMarkedMinimumLeadingTests
             xml=>xml.Descendants(Word+"sectPr").Single().Add(new XElement(Word+"cols",new XAttribute(Word+"num","2")))
         ];
         foreach (var modify in guards) { var source = Read(modify); var before = Layout(source); TestAssert.True(!DocxMinimumBodyLineLeading.TryCreateLayout(source, before, out var after), "Unowned superscripts, marker formatting, unsupported spacing/slots and composed flow retain fallback."); TestAssert.True(ReferenceEquals(before, after), "An exclusion retains the whole layout."); }
-        TestAssert.Throws<InvalidDataException>(() => Read(xml => Body(xml)[1].Element(Word + "pPr")!.Element(Word + "spacing")!.SetAttributeValue(Word + "after", "bad")));
+        // An unreadable value reads as absent, as in Word's repair and LibreOffice, instead of failing the document.
+        TestAssert.Equal(
+            Read(xml => Body(xml)[1].Element(Word + "pPr")!.Element(Word + "spacing")!.SetAttributeValue(Word + "after", null)).Paragraphs[1].SpacingAfterPoints,
+            Read(xml => Body(xml)[1].Element(Word + "pPr")!.Element(Word + "spacing")!.SetAttributeValue(Word + "after", "bad")).Paragraphs[1].SpacingAfterPoints);
     }
 
     private static DocxRenderer Renderer(OoxPdfDocxMarkupGeometryMode mode) => new(new TestFaceFontResolver(), OoxPdfDocxMarkupMode.AllMarkup, mode);

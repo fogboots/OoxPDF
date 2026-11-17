@@ -656,18 +656,7 @@ internal sealed partial class DocxReader
 
     private static double? ReadTableRowHeight(XElement? height)
     {
-        if (height?.Attribute(WordprocessingNamespace + "val") is not { } value)
-        {
-            return null;
-        }
-
-        try
-        {
-            return OoxUnits.TwipsToPoints(long.Parse(value.Value, CultureInfo.InvariantCulture));
-        }
-        catch (Exception ex) when (ex is FormatException or OverflowException)
-        {
-            throw new InvalidDataException("Malformed DOCX table row height.", ex);
-        }
+        // "auto" and other unreadable heights leave the row to size to its content.
+        return OoxUnits.TwipsMeasureToPoints((string?)height?.Attribute(WordprocessingNamespace + "val"));
     }
 }

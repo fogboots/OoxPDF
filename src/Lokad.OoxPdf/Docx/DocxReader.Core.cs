@@ -164,8 +164,9 @@ internal sealed partial class DocxReader
             };
         }
 
-        double width = OoxUnits.TwipsToPoints(OoxXml.ParseRequiredLong(pageSize, WordprocessingNamespace + "w", "DOCX"));
-        double height = OoxUnits.TwipsToPoints(OoxXml.ParseRequiredLong(pageSize, WordprocessingNamespace + "h", "DOCX"));
+        // Unreadable dimensions take Letter, as an absent pgSz does.
+        double width = OoxUnits.TwipsMeasureToPoints((string?)pageSize.Attribute(WordprocessingNamespace + "w")) ?? 612d;
+        double height = OoxUnits.TwipsMeasureToPoints((string?)pageSize.Attribute(WordprocessingNamespace + "h")) ?? 792d;
         (width, height) = NormalizePageSize(width, height);
         string? orientation = (string?)pageSize.Attribute(WordprocessingNamespace + "orient");
         if (orientation?.Equals("landscape", StringComparison.OrdinalIgnoreCase) == true && height > width)

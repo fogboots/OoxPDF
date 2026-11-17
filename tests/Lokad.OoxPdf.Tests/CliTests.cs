@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Lokad.OoxPdf.Tests;
 
@@ -40,6 +41,26 @@ internal static class CliTests
         CliResult result = RunCli("convert", missing, output);
 
         TestAssert.Equal(1, result.ExitCode);
+    }
+
+    public static void CliConversionFailureNamesAContentFreeClass()
+    {
+        // Hosts log the class; the message may quote the document and stays out of it.
+        string input = TestFixtures.WriteTempPackage(".docx", new Dictionary<string, string>
+        {
+            ["[Content_Types].xml"] = BasicContentTypes(),
+            ["_rels/.rels"] = PackageRelationship(),
+            ["word/document.xml"] = "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body><w:p>Private &words; here</w:p></w:body></w:document>"
+        });
+        string output = Path.ChangeExtension(Path.GetTempFileName(), ".pdf");
+        string diagnostics = Path.ChangeExtension(Path.GetTempFileName(), ".json");
+
+        CliResult result = RunCli("convert", input, output, "--diagnostics", diagnostics);
+
+        TestAssert.Equal(1, result.ExitCode);
+        using JsonDocument json = JsonDocument.Parse(File.ReadAllText(diagnostics));
+        JsonElement failure = json.RootElement.EnumerateArray().Single(d => d.GetProperty("Id").GetString() == "OOXML_CONVERSION_FAILED");
+        TestAssert.Equal("InvalidDataException@SafeXml", failure.GetProperty("Feature").GetString());
     }
 
     public static void CliStrictReturnsThreeWhenWarningsAreEmitted()
@@ -218,16 +239,17 @@ internal static class CliTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    public static void CliReportsMalformedNumericInputAsConversionFailure()
+    public static void CliConvertsMalformedNumericInputWithDefaults()
     {
+        // An unreadable spacing value reads as absent instead of failing the document.
         string input = WriteMalformedNumericDocx();
         string output = Path.ChangeExtension(Path.GetTempFileName(), ".pdf");
         string diagnostics = Path.ChangeExtension(Path.GetTempFileName(), ".json");
 
         CliResult result = RunCli("convert", input, output, "--diagnostics", diagnostics);
 
-        TestAssert.Equal(1, result.ExitCode);
-        TestAssert.True(File.Exists(diagnostics), "Malformed numeric input should still write diagnostics JSON.");
+        TestAssert.Equal(0, result.ExitCode);
+        TestAssert.True(File.Exists(output), "The document converts.");
     }
 
     public static void CliRejectsEarlyFailureDiagnosticsAliasingInput()

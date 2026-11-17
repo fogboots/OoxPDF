@@ -46,6 +46,24 @@ internal static class OoxmlTests
         TestAssert.Throws<InvalidDataException>(() => OoxPath.NormalizePartName("../evil.xml"));
     }
 
+    public static void TwipsMeasuresAcceptDecimalsAndUnits()
+    {
+        foreach ((string text, double twips) in new[]
+        {
+            ("240", 240d), (" -120 ", -120d), ("720.5", 720.5d), ("12pt", 240d), ("0.5in", 720d),
+            ("2.54cm", 1440d), ("25.4mm", 1440d), ("1pc", 240d), ("1pi", 240d), ("-6pt", -120d)
+        })
+        {
+            TestAssert.True(OoxUnits.TryParseTwipsMeasure(text, out double parsed), text);
+            TestAssert.True(Math.Abs(parsed - twips) < 1e-9, $"{text}: {parsed}");
+        }
+
+        foreach (string? text in new[] { null, "", " ", "auto", "bad", "12px", "1e400", "NaN", "Infinity" })
+        {
+            TestAssert.True(!OoxUnits.TryParseTwipsMeasure(text, out _), text ?? "null");
+        }
+    }
+
     public static void ResolvesRelationshipTargets()
     {
         string resolved = OoxPath.ResolveRelationshipTarget("/ppt/slides/slide1.xml", "../media/image1.png");

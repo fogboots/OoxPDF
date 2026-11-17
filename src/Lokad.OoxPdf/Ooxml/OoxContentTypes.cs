@@ -19,31 +19,58 @@ internal sealed class OoxContentTypes
         XDocument document = SafeXml.Load(stream, cancellationToken);
         var defaults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var conflicted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Two different types for one extension ("xml" and "XML") or one part leave neither
+        // guess in force, and an incomplete or unsafe declaration is skipped: the package
+        // still opens, and a part without a type reads as absent. Failing the whole document
+        // here rejected files Word and LibreOffice open.
+        void Declare(Dictionary<string, string> types, string key, string contentType)
+        {
+            if (conflicted.Contains(key))
+            {
+                return;
+            }
+
+            if (types.TryGetValue(key, out string? existing) && existing != contentType)
+            {
+                types.Remove(key);
+                conflicted.Add(key);
+                return;
+            }
+
+            types[key] = contentType;
+        }
 
         foreach (XElement element in document.Root?.Elements() ?? [])
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (element.Name == OoxNamespaces.ContentTypesNamespace + "Default")
+            string? contentType = (string?)element.Attribute("ContentType");
+            if (contentType is null)
             {
-                string extension = RequiredAttribute(element, "Extension");
-                string defaultKey = extension.TrimStart('.');
-                if (defaults.TryGetValue(defaultKey, out string? existingDefault) && existingDefault != RequiredAttribute(element, "ContentType"))
-                {
-                    throw new InvalidDataException("OOXML package declares conflicting content types.");
-                }
-
-                defaults[defaultKey] = RequiredAttribute(element, "ContentType");
+                continue;
             }
-            else if (element.Name == OoxNamespaces.ContentTypesNamespace + "Override")
+
+            if (element.Name == OoxNamespaces.ContentTypesNamespace + "Default" &&
+                (string?)element.Attribute("Extension") is { } extension)
             {
-                string partName = OoxPath.NormalizePartName(RequiredAttribute(element, "PartName"));
-                string overrideType = RequiredAttribute(element, "ContentType");
-                if (overrides.TryGetValue(partName, out string? existingOverride) && existingOverride != overrideType)
+                // Conflict keys keep defaults and overrides apart: an override name starts with '/'.
+                Declare(defaults, extension.TrimStart('.'), contentType);
+            }
+            else if (element.Name == OoxNamespaces.ContentTypesNamespace + "Override" &&
+                (string?)element.Attribute("PartName") is { } partName)
+            {
+                string normalized;
+                try
                 {
-                    throw new InvalidDataException("OOXML package declares conflicting content types.");
+                    normalized = OoxPath.NormalizePartName(partName);
+                }
+                catch (Exception ex) when (ex is InvalidDataException or ArgumentException)
+                {
+                    continue;
                 }
 
-                overrides[partName] = overrideType;
+                Declare(overrides, normalized, contentType);
             }
         }
 
@@ -60,11 +87,5 @@ internal sealed class OoxContentTypes
 
         string extension = Path.GetExtension(normalized).TrimStart('.');
         return defaults.TryGetValue(extension, out contentType) ? contentType : null;
-    }
-
-    private static string RequiredAttribute(XElement element, string name)
-    {
-        return (string?)element.Attribute(name)
-            ?? throw new InvalidDataException($"Missing required {element.Name.LocalName} attribute '{name}'.");
     }
 }

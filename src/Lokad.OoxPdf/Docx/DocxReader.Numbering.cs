@@ -54,8 +54,9 @@ internal sealed partial class DocxReader
             ?.Attribute(WordprocessingNamespace + "val"));
         int level = numberingProperties?
             .Element(WordprocessingNamespace + "ilvl")
-            ?.Attribute(WordprocessingNamespace + "val") is { } levelAttribute
-            ? int.Parse(levelAttribute.Value, CultureInfo.InvariantCulture)
+            ?.Attribute(WordprocessingNamespace + "val") is { } levelAttribute &&
+            OoxUnits.TryParseWholeNumber(levelAttribute.Value, out int parsedLevel)
+            ? parsedLevel
             : 0;
         if (numId is null || !numbering.NumToAbstract.TryGetValue(numId, out string? abstractId))
         {
@@ -261,8 +262,8 @@ internal sealed partial class DocxReader
             foreach (XElement level in abstractNum.Elements(WordprocessingNamespace + "lvl"))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                int levelIndex = level.Attribute(WordprocessingNamespace + "ilvl") is { } ilvl
-                    ? int.Parse(ilvl.Value, CultureInfo.InvariantCulture)
+                int levelIndex = OoxUnits.TryParseWholeNumber((string?)level.Attribute(WordprocessingNamespace + "ilvl"), out int parsedIndex)
+                    ? parsedIndex
                     : 0;
                 levels[(abstractId, levelIndex)] = ReadNumberingLevel(level, levelIndex, fontCatalog);
             }
@@ -289,12 +290,12 @@ internal sealed partial class DocxReader
             foreach (XElement overrideLevel in num.Elements(WordprocessingNamespace + "lvlOverride"))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                int levelIndex = overrideLevel.Attribute(WordprocessingNamespace + "ilvl") is { } ilvl
-                    ? int.Parse(ilvl.Value, CultureInfo.InvariantCulture)
+                int levelIndex = OoxUnits.TryParseWholeNumber((string?)overrideLevel.Attribute(WordprocessingNamespace + "ilvl"), out int parsedIndex)
+                    ? parsedIndex
                     : 0;
-                if (overrideLevel.Element(WordprocessingNamespace + "startOverride")?.Attribute(WordprocessingNamespace + "val") is { } startValue)
+                if (OoxUnits.TryParseWholeNumber((string?)overrideLevel.Element(WordprocessingNamespace + "startOverride")?.Attribute(WordprocessingNamespace + "val"), out int startOverride))
                 {
-                    startOverrides[(numId, levelIndex)] = int.Parse(startValue.Value, CultureInfo.InvariantCulture);
+                    startOverrides[(numId, levelIndex)] = startOverride;
                 }
 
                 XElement? concreteLevel = overrideLevel.Element(WordprocessingNamespace + "lvl");
@@ -310,8 +311,8 @@ internal sealed partial class DocxReader
 
     private static DocxNumberingLevel ReadNumberingLevel(XElement level, int levelIndex, DocxFontCatalog fontCatalog)
     {
-        int start = level.Element(WordprocessingNamespace + "start")?.Attribute(WordprocessingNamespace + "val") is { } startValue
-            ? int.Parse(startValue.Value, CultureInfo.InvariantCulture)
+        int start = OoxUnits.TryParseWholeNumber((string?)level.Element(WordprocessingNamespace + "start")?.Attribute(WordprocessingNamespace + "val"), out int parsedStart)
+            ? parsedStart
             : 1;
         string format = (string?)level.Element(WordprocessingNamespace + "numFmt")?.Attribute(WordprocessingNamespace + "val") ?? "decimal";
         string text = (string?)level.Element(WordprocessingNamespace + "lvlText")?.Attribute(WordprocessingNamespace + "val") ??

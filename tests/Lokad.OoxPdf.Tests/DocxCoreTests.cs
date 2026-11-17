@@ -171,6 +171,51 @@ internal static class DocxCoreTests
         TestAssert.True(paragraph.Runs[1].Italic, "Expected w:i w:val=\"on\" to enable italic.");
     }
 
+    public static void DocxReaderReadsMeasuresOtherProducersWrite()
+    {
+        // Decimals and universal-measure units parse; empty, "auto" and other text read as
+        // absent. Each used to fail the whole document while LibreOffice converted it.
+        string input = TestFixtures.WriteTempPackage(".docx", new Dictionary<string, string>
+        {
+            ["[Content_Types].xml"] = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+                  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+                  <Default Extension="xml" ContentType="application/xml"/>
+                  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+                </Types>
+                """,
+            ["_rels/.rels"] = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+                </Relationships>
+                """,
+            ["word/document.xml"] = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:body>
+                    <w:p><w:pPr><w:spacing w:before="0.0" w:after="12pt" w:line="276.0" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:sz w:val="23.0"/></w:rPr><w:t>Units</w:t></w:r></w:p>
+                    <w:p><w:pPr><w:spacing w:before="" w:after="auto"/><w:numPr><w:ilvl w:val=""/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>Unreadable</w:t></w:r></w:p>
+                    <w:tbl><w:tblGrid><w:gridCol w:w="4000.0"/></w:tblGrid><w:tr><w:trPr><w:trHeight w:val="auto"/></w:trPr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+                    <w:sectPr><w:type w:val="sideways"/><w:pgSz w:w="11906.0" w:h="297mm"/><w:pgMar w:top="1in" w:right="1440" w:bottom="" w:left="1440"/></w:sectPr>
+                  </w:body>
+                </w:document>
+                """
+        });
+
+        using FileStream stream = File.OpenRead(input);
+        DocxDocument document = new DocxReader().Read(OoxPackage.Open(stream, CancellationToken.None), null, CancellationToken.None, OoxPdfDocxMarkupMode.Final);
+
+        TestAssert.Equal(0d, document.Paragraphs[0].SpacingBeforePoints);
+        TestAssert.Equal(12d, document.Paragraphs[0].SpacingAfterPoints);
+        TestAssert.Equal(276d / 240d, document.Paragraphs[0].LineSpacingFactor);
+        TestAssert.Equal("Unreadable", string.Concat(document.Paragraphs[1].Runs.Select(run => run.Text)));
+        TestAssert.Equal(11906d / 20d, document.PageWidthPoints);
+        TestAssert.True(Math.Abs(document.PageHeightPoints - 297d / 25.4d * 72d) < 1e-9, "297mm page height");
+        TestAssert.Equal(72d, document.MarginTopPoints);
+    }
+
     public static void DocxReaderParsesRunCharacterSpacing()
     {
         string input = TestFixtures.WriteTempPackage(".docx", new Dictionary<string, string>

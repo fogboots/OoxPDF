@@ -18,7 +18,9 @@ internal static class SafeXml
     {
         return new XmlReaderSettings
         {
-            DtdProcessing = DtdProcessing.Prohibit,
+            // Ignore, not Prohibit: a DOCTYPE some producers write is skipped without
+            // processing (no entity expansion, no external fetches) instead of failing the part.
+            DtdProcessing = DtdProcessing.Ignore,
             XmlResolver = null,
             IgnoreComments = true,
             IgnoreWhitespace = false,

@@ -54,16 +54,45 @@ internal static class OoxmlBoundsTests
         TestAssert.Throws<InvalidDataException>(() => OoxPackage.Open(stream, CancellationToken.None));
     }
 
-    public static void RejectsConflictingContentTypeOverrides()
+    public static void ConflictingContentTypesLeaveNeitherGuess()
     {
+        // "xml" and "XML" name one extension; two overrides name one part. Word and LibreOffice
+        // open such files, so the package opens with neither declaration in force.
         using MemoryStream packageStream = TestFixtures.CreateZipPackage(new Dictionary<string, string>
         {
             ["[Content_Types].xml"] = TestContentTypes(
+                "<Default Extension=\"xml\" ContentType=\"application/xml\"/>",
+                "<Default Extension=\"XML\" ContentType=\"text/xml\"/>",
+                "<Default Extension=\"bin\" ContentType=\"application/octet-stream\"/>",
                 "<Override PartName=\"/word/document.xml\" ContentType=\"application/a\"/>",
-                "<Override PartName=\"/word/document.xml\" ContentType=\"application/b\"/>"),
+                "<Override PartName=\"/word/document.xml\" ContentType=\"application/b\"/>",
+                "<Override PartName=\"/word/styles.xml\" ContentType=\"application/c\"/>",
+                "<Override ContentType=\"application/incomplete\"/>"),
+            ["word/document.xml"] = "<w:document/>",
+            ["word/styles.xml"] = "<w:styles/>",
+            ["word/other.xml"] = "<x/>",
+            ["word/data.bin"] = "x",
         });
 
-        TestAssert.Throws<InvalidDataException>(() => OoxPackage.Open(packageStream, CancellationToken.None));
+        OoxPackage package = OoxPackage.Open(packageStream, CancellationToken.None);
+        TestAssert.True(package.GetPart("/word/document.xml") is null, "A part with conflicting overrides and no default has no type.");
+        TestAssert.True(package.GetPart("/word/other.xml") is null, "Conflicting defaults leave the extension untyped.");
+        TestAssert.Equal("application/c", package.GetPart("/word/styles.xml")!.ContentType);
+        TestAssert.Equal("application/octet-stream", package.GetPart("/word/data.bin")!.ContentType);
+    }
+
+    public static void UnsafeEntryNamesAreSkippedNotFatal()
+    {
+        // No relationship can resolve to these names, so they cannot be document content.
+        using MemoryStream packageStream = TestFixtures.CreateZipPackage(new Dictionary<string, string>
+        {
+            ["[Content_Types].xml"] = ContentTypesWithXmlDefault(),
+            ["customXml/item:1.xml"] = "<x/>",
+            ["word/document.xml"] = "<w:document/>",
+        });
+
+        OoxPackage package = OoxPackage.Open(packageStream, CancellationToken.None);
+        TestAssert.NotNull(package.GetPart("/word/document.xml"));
     }
 
     public static void ToleratesIdenticalContentTypeOverrides()
@@ -81,7 +110,7 @@ internal static class OoxmlBoundsTests
         TestAssert.NotNull(package.GetPart("/word/document.xml"));
     }
 
-    public static void RejectsDuplicateRelationshipIds()
+    public static void DuplicateRelationshipIdsResolveToNeither()
     {
         using MemoryStream packageStream = TestFixtures.CreateZipPackage(new Dictionary<string, string>
         {
@@ -95,7 +124,30 @@ internal static class OoxmlBoundsTests
         });
 
         OoxPackage package = OoxPackage.Open(packageStream, CancellationToken.None);
-        TestAssert.Throws<InvalidDataException>(() => package.GetRelationships("/", CancellationToken.None));
+        TestAssert.Equal(0, package.GetRelationships("/", CancellationToken.None).Count);
+    }
+
+    public static void UnreadableRelationshipsReadAsAbsent()
+    {
+        using MemoryStream packageStream = TestFixtures.CreateZipPackage(new Dictionary<string, string>
+        {
+            ["[Content_Types].xml"] = ContentTypesWithXmlDefault(),
+            ["word/_rels/document.xml.rels"] = TestRelationships(
+                "<Relationship Id=\"rId1\" Type=\"hyperlink\" Target=\"mailto:someone@example.invalid\"/>",
+                "<Relationship Id=\"rId2\" Type=\"attachedTemplate\" Target=\"file:///C:/Templates/Normal.dotm\"/>",
+                "<Relationship Id=\"rId3\" Type=\"image\" Target=\"\"/>",
+                "<Relationship Id=\"rId4\" Type=\"image\"/>",
+                "<Relationship Type=\"image\" Target=\"media/a.png\"/>",
+                "<Relationship Id=\"rId5\" Type=\"image\" Target=\"../../../escape.png\"/>",
+                "<Relationship Id=\"rId6\" Type=\"hyperlink\" Target=\"https://example.invalid\" TargetMode=\"External\"/>",
+                "<Relationship Id=\"rId7\" Type=\"styles\" Target=\"styles.xml\"/>"),
+            ["word/document.xml"] = "<w:document/>",
+        });
+
+        OoxPackage package = OoxPackage.Open(packageStream, CancellationToken.None);
+        IReadOnlyDictionary<string, OoxRelationship> relationships = package.GetRelationshipDictionary("/word/document.xml", CancellationToken.None);
+        TestAssert.Equal("rId6,rId7", string.Join(",", relationships.Keys.Order(StringComparer.Ordinal)));
+        TestAssert.Equal("/word/styles.xml", relationships["rId7"].ResolvedTarget);
     }
 
     public static void RejectsDeeplyNestedXml()
@@ -130,6 +182,15 @@ internal static class OoxmlBoundsTests
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes("<a><b></a>"));
         TestAssert.Throws<InvalidDataException>(() => SafeXml.Load(stream, CancellationToken.None));
+    }
+
+    public static void IgnoresDoctypeWithoutExpandingEntities()
+    {
+        using var plain = new MemoryStream(Encoding.UTF8.GetBytes("<!DOCTYPE a><a>text</a>"));
+        TestAssert.Equal("text", SafeXml.Load(plain, CancellationToken.None).Root!.Value);
+        // Declared entities are never expanded: a reference to one is malformed, not resolved.
+        using var entity = new MemoryStream(Encoding.UTF8.GetBytes("<!DOCTYPE a [<!ENTITY x \"expanded\">]><a>&x;</a>"));
+        TestAssert.Throws<InvalidDataException>(() => SafeXml.Load(entity, CancellationToken.None));
     }
 
     private static string TestContentTypes(params string[] entries)

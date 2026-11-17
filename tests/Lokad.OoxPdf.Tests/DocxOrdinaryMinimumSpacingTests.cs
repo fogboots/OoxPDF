@@ -112,7 +112,10 @@ internal static class DocxOrdinaryMinimumSpacingTests
             TestAssert.True(!DocxMinimumBodyLineLeading.TryCreateLayout(source, original, out var fallback), "Unsupported spacing, rich runs and composed flow keep fallback.");
             TestAssert.True(ReferenceEquals(original, fallback), "An exclusion retains the complete original layout.");
         }
-        TestAssert.Throws<InvalidDataException>(() => Read(4, 4, (xml, _) => Spacing(Body(xml)[0]).SetAttributeValue(Word + "before", "bad")));
+        // An unreadable value reads as absent, as in Word's repair and LibreOffice, instead of failing the document.
+        TestAssert.Equal(
+            Read(4, 4, (xml, _) => Spacing(Body(xml)[0]).SetAttributeValue(Word + "before", null)).Paragraphs[0].SpacingBeforePoints,
+            Read(4, 4, (xml, _) => Spacing(Body(xml)[0]).SetAttributeValue(Word + "before", "bad")).Paragraphs[0].SpacingBeforePoints);
     }
 
     private static readonly XNamespace Word = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";

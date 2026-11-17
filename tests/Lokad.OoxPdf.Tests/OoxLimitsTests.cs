@@ -80,7 +80,7 @@ internal static partial class OoxLimitsTests
         TestAssert.Throws<IOException>(() => new DocxReader().Read(OoxPackage.Open(stream, CancellationToken.None), null, CancellationToken.None, OoxPdfDocxMarkupMode.Final));
     }
 
-    public static void DocxMalformedRowHeightNormalizesToInvalidData()
+    public static void DocxMalformedRowHeightReadsAsAutoHeight()
     {
         string input = TestFixtures.WriteTempPackage(".docx", new Dictionary<string, string>
         {
@@ -102,8 +102,10 @@ internal static partial class OoxLimitsTests
                 """,
         });
         using FileStream stream = File.OpenRead(input);
-        // Q04: malformed numeric geometry must surface as InvalidData, not FormatException.
-        TestAssert.Throws<InvalidDataException>(() => new DocxReader().Read(OoxPackage.Open(stream, CancellationToken.None), null, CancellationToken.None, OoxPdfDocxMarkupMode.Final));
+        // Q04 kept this from escaping as a FormatException. An unreadable height now reads as
+        // absent (the row sizes to its content), as in Word's repair and LibreOffice.
+        DocxDocument document = new DocxReader().Read(OoxPackage.Open(stream, CancellationToken.None), null, CancellationToken.None, OoxPdfDocxMarkupMode.Final);
+        TestAssert.Equal(1, document.Tables.Count);
     }
 
     public static void DocxFragmentNormalPasses()

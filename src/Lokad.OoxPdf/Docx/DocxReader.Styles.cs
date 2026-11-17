@@ -267,11 +267,11 @@ internal sealed partial class DocxReader
             if (string.Equals(lineRule, "exact", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(lineRule, "atLeast", StringComparison.OrdinalIgnoreCase))
             {
-                linePoints = OoxUnits.TwipsToPoints(long.Parse(line.Value, CultureInfo.InvariantCulture));
+                linePoints = OoxUnits.TwipsMeasureToPoints(line.Value);
             }
-            else
+            else if (OoxUnits.TryParseDecimal(line.Value, out double lineValue))
             {
-                lineFactor = int.Parse(line.Value, CultureInfo.InvariantCulture) / 240d;
+                lineFactor = lineValue / 240d;
             }
         }
 
@@ -367,8 +367,9 @@ internal sealed partial class DocxReader
     {
         double? fontSize = properties?
             .Element(WordprocessingNamespace + "sz")
-            ?.Attribute(WordprocessingNamespace + "val") is { } size
-            ? int.Parse(size.Value, CultureInfo.InvariantCulture) / 2d
+            ?.Attribute(WordprocessingNamespace + "val") is { } size &&
+            OoxUnits.TryParseDecimal(size.Value, out double halfPoints)
+            ? halfPoints / 2d
             : null;
         string? color = (string?)properties?
             .Element(WordprocessingNamespace + "color")
@@ -445,19 +446,7 @@ internal sealed partial class DocxReader
 
     private static double? ReadTwipsAttribute(XElement? element, XName name)
     {
-        if (element?.Attribute(name) is not { } value)
-        {
-            return null;
-        }
-
-        try
-        {
-            return OoxUnits.TwipsToPoints(long.Parse(value.Value, CultureInfo.InvariantCulture));
-        }
-        catch (Exception ex) when (ex is FormatException or OverflowException)
-        {
-            throw new InvalidDataException("Malformed DOCX twips attribute [" + name.LocalName + "].", ex);
-        }
+        return OoxUnits.TwipsMeasureToPoints((string?)element?.Attribute(name));
     }
 
     private static double? ReadSignedTwipsElement(XElement? element)
@@ -542,9 +531,7 @@ internal sealed partial class DocxReader
 
     private static double ReadMargin(XElement? margins, XName name, double defaultValue)
     {
-        return margins?.Attribute(name) is { } margin
-            ? OoxUnits.TwipsToPoints(long.Parse(margin.Value, CultureInfo.InvariantCulture))
-            : defaultValue;
+        return OoxUnits.TwipsMeasureToPoints((string?)margins?.Attribute(name)) ?? defaultValue;
     }
 
     private sealed record DocxStyleSet(

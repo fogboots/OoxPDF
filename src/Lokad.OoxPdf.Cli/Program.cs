@@ -119,7 +119,19 @@ static int Run(string[] args)
     }
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or FormatException or OverflowException or InvalidDataException)
     {
-        collector.Add(new OoxPdfDiagnostic("OOXML_CONVERSION_FAILED", OoxPdfSeverity.Error, ex.Message, PartName: null, SlideIndex: null, PageIndex: null, Feature: null, Fallback: null));
+        return Fail(ex, 1);
+    }
+    catch (Exception ex) when (ex is not (OutOfMemoryException or InsufficientExecutionStackException))
+    {
+        // A renderer bug on this input: 4 keeps it apart from a document the reader rejects,
+        // and the failure class names where it happened.
+        return Fail(ex, 4);
+    }
+
+    int Fail(Exception ex, int exitCode)
+    {
+        // Feature carries a content-free failure class hosts can log; Message may quote the document.
+        collector.Add(new OoxPdfDiagnostic("OOXML_CONVERSION_FAILED", OoxPdfSeverity.Error, ex.Message, PartName: null, SlideIndex: null, PageIndex: null, Feature: FailureClass(ex), Fallback: null));
         try
         {
             WriteDiagnostics(diagnosticsPath, collector.DiagnosticsWithOverflow());
@@ -129,8 +141,48 @@ static int Run(string[] args)
             Console.Error.WriteLine(diagEx.Message);
         }
         Console.Error.WriteLine(ex.Message);
-        return 1;
+        return exitCode;
     }
+}
+
+// "InvalidDataException@SafeXml": the exception type and the innermost library type on its
+// stack. Both are code identifiers, never document text, so a host may log them.
+static string FailureClass(Exception ex)
+{
+    string type = Identifier(ex.GetType().Name);
+    foreach (string line in (ex.StackTrace ?? "").Split('\n'))
+    {
+        string frame = line.Trim();
+        if (!frame.StartsWith("at Lokad.OoxPdf.", StringComparison.Ordinal))
+        {
+            continue;
+        }
+
+        int open = frame.IndexOf('(');
+        string[] names = (open < 0 ? frame[3..] : frame[3..open]).Split('.');
+        // The last name is the method; compiler-generated names (<>c, <Read>g__Local) are skipped.
+        for (int i = names.Length - 2; i >= 2; i--)
+        {
+            string owner = Identifier(names[i]);
+            if (owner.Length > 0)
+            {
+                return type + "@" + owner;
+            }
+        }
+    }
+
+    return type;
+}
+
+static string Identifier(string name)
+{
+    int generic = name.IndexOf('`');
+    string candidate = generic < 0 ? name : name[..generic];
+    return candidate.Length is > 0 and <= 40 &&
+        char.IsAsciiLetter(candidate[0]) &&
+        candidate.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')
+        ? candidate
+        : "";
 }
 
 static void PrintUsage()

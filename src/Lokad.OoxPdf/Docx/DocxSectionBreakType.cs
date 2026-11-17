@@ -37,8 +37,9 @@ internal static class DocxSectionBreakTypeExtensions
 
     /// <summary>
     /// Parses a w:type val into its section-break type. Null (absent element) stays
-    /// null (Word default: next page). Unknown vals fail loudly: the schema vocabulary
-    /// is closed, so an unrecognized val is malformed input, not a new variant.
+    /// null (Word default: next page). Unknown vals also read as null, as Word's repair and
+    /// LibreOffice do; a paragraph section break with one still reports
+    /// DOCX_UNSUPPORTED_SECTION_BREAK.
     /// </summary>
     public static DocxSectionBreakType? FromValue(string? value)
     {
@@ -50,7 +51,7 @@ internal static class DocxSectionBreakTypeExtensions
             "continuous" => DocxSectionBreakType.Continuous,
             "evenpage" => DocxSectionBreakType.EvenPage,
             "oddpage" => DocxSectionBreakType.OddPage,
-            _ => throw new InvalidDataException("Unknown DOCX section-break type val: " + value + ".")
+            _ => null
         };
     }
 }

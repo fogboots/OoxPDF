@@ -154,7 +154,18 @@ internal sealed class OoxPackage
                 continue;
             }
 
-            string partName = OoxPath.NormalizePartName(entry.FullName);
+            // An entry whose name is not a safe part name ("..", ":") can never be the target
+            // of a relationship, so it cannot be content: skip it rather than fail the package.
+            string partName;
+            try
+            {
+                partName = OoxPath.NormalizePartName(entry.FullName);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or ArgumentException)
+            {
+                continue;
+            }
+
             if (entry.Length < 0 || entry.Length > MaxPartBytes)
             {
                 throw new OoxPdfLimitExceededException($"OOXML part '{partName}' exceeds the maximum supported size.");
@@ -520,25 +531,46 @@ internal sealed class OoxPackage
     private static Dictionary<string, OoxRelationship> ParseRelationshipDocument(XDocument document, string sourcePartName, CancellationToken cancellationToken)
     {
         var relationships = new Dictionary<string, OoxRelationship>(StringComparer.Ordinal);
-        var seenIds = new HashSet<string>(StringComparer.Ordinal);
+        var ambiguousIds = new HashSet<string>(StringComparer.Ordinal);
 
+        // One unreadable relationship must not fail the whole package. It reads as absent, so
+        // whatever refers to it degrades like any dangling reference (Word's repair and
+        // LibreOffice do the same): a relationship without an id, type or target, one whose
+        // internal target is not a package part (a mailto: or file: link missing
+        // TargetMode="External", a path above the root), and every relationship of an id
+        // used twice, since neither guess is safe.
         foreach (XElement element in document.Root?.Elements(OoxNamespaces.PackageRelationshipsNamespace + "Relationship") ?? [])
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string id = RequiredAttribute(element, "Id");
-            if (!seenIds.Add(id))
+            string? id = (string?)element.Attribute("Id");
+            string? type = (string?)element.Attribute("Type");
+            string? target = (string?)element.Attribute("Target");
+            if (string.IsNullOrEmpty(id) || type is null || string.IsNullOrWhiteSpace(target) || ambiguousIds.Contains(id))
             {
-                throw new InvalidDataException("OOXML package contains a duplicate relationship id.");
+                continue;
             }
-            string type = RequiredAttribute(element, "Type");
-            type = OoxNamespaces.NormalizeRelationshipType(type);
-            string target = RequiredAttribute(element, "Target");
-            string? targetMode = (string?)element.Attribute("TargetMode");
-            string? resolvedTarget = targetMode?.Equals("External", StringComparison.OrdinalIgnoreCase) == true
-                ? null
-                : OoxPath.ResolveRelationshipTarget(sourcePartName, target);
 
-            relationships.Add(id, new OoxRelationship(id, type, target, targetMode, resolvedTarget));
+            if (relationships.Remove(id))
+            {
+                ambiguousIds.Add(id);
+                continue;
+            }
+
+            string? targetMode = (string?)element.Attribute("TargetMode");
+            string? resolvedTarget = null;
+            if (targetMode?.Equals("External", StringComparison.OrdinalIgnoreCase) != true)
+            {
+                try
+                {
+                    resolvedTarget = OoxPath.ResolveRelationshipTarget(sourcePartName, target);
+                }
+                catch (InvalidDataException)
+                {
+                    continue;
+                }
+            }
+
+            relationships.Add(id, new OoxRelationship(id, OoxNamespaces.NormalizeRelationshipType(type), target, targetMode, resolvedTarget));
         }
 
         return relationships;
@@ -595,11 +627,5 @@ internal sealed class OoxPackage
 
             destination.Write(buffer, 0, read);
         }
-    }
-
-    private static string RequiredAttribute(XElement element, string name)
-    {
-        return (string?)element.Attribute(name)
-            ?? throw new InvalidDataException($"Missing required Relationship attribute '{name}'.");
     }
 }
