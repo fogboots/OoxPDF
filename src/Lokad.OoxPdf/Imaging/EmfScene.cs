@@ -62,6 +62,17 @@ internal sealed class EmfPathOp : EmfOp
     public EmfStroke? Stroke { get; init; }
 }
 
+// Invisible text over glyph outlines so metafile words stay extractable and searchable.
+internal sealed class EmfTextOp : EmfOp
+{
+    public required List<EmfTextGlyph> Glyphs { get; init; }
+
+    // Em size in device pixels.
+    public required double Size { get; init; }
+}
+
+internal readonly record struct EmfTextGlyph(Lokad.OoxPdf.Fonts.OpenTypeFont Font, ushort Glyph, int CodePoint, double X, double Y);
+
 internal sealed class EmfBitmapOp : EmfOp
 {
     // Maps the unit square of the cropped bitmap (t = 0 at its top edge) to device pixels.
@@ -451,6 +462,10 @@ internal sealed partial class EmfScene
                 case 57: case 98: case 99: case 100: case 101: case 109: case 111: case 112: case 113: case 115: case 119: case 120:
                     // Header, brush origin, stretch mode, color adjustment, palette plumbing, ICM and
                     // layout: none changes the geometry or colors this player paints.
+                    break;
+                // Types outside the MS-EMF record range carry nothing a reader can draw; GDI
+                // skips them by size, as do Office and LibreOffice.
+                case < 1 or > 122:
                     break;
                 default:
                     throw new NotSupportedException($"EMF record type {type} is not supported.");

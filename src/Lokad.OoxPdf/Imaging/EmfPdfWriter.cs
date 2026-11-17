@@ -37,6 +37,10 @@ internal static class EmfPdfWriter
             {
                 throw new InvalidDataException("EMF path coordinates are not finite.");
             }
+            else if (op is EmfTextOp text && (!double.IsFinite(text.Size) || !text.Glyphs.TrueForAll(g => double.IsFinite(g.X) && double.IsFinite(g.Y))))
+            {
+                throw new InvalidDataException("EMF text coordinates are not finite.");
+            }
 
             for (EmfClip? clip = op.Clip; clip is not null; clip = clip.Parent)
             {
@@ -66,6 +70,30 @@ internal static class EmfPdfWriter
             else if (op is EmfBitmapOp bitmapOp)
             {
                 PaintBitmap(bitmapOp);
+            }
+            else if (op is EmfTextOp textOp)
+            {
+                PaintText(textOp);
+            }
+        }
+
+        // Render mode 3 draws nothing: the outlines above are the visible text.
+        void PaintText(EmfTextOp text)
+        {
+            double size = text.Size * scaleY;
+            if (size <= 0d) { return; }
+            foreach (var group in text.Glyphs.Where(g => g.CodePoint >= 0x20).GroupBy(g => g.Font))
+            {
+                var mappings = group.GroupBy(g => g.Glyph).Select(g => (g.Key, g.First().CodePoint)).ToArray();
+                PdfEmbeddedFont font = PdfEmbeddedFont.CreateForGlyphMappings(group.Key, mappings, cancellationToken);
+                string name = graphics.RegisterFont(font);
+                foreach (EmfTextGlyph glyph in group)
+                {
+                    if (!font.TryGetEncodedCid(glyph.Glyph, out ushort cid)) { continue; }
+                    graphics.DrawGlyphText(name, size, X(glyph.X), Y(glyph.Y), 0, 0, 0,
+                        cid.ToString("X4", System.Globalization.CultureInfo.InvariantCulture), italic: false, characterSpacing: 0d,
+                        textRenderingMode: 3, strokeRed: 0, strokeGreen: 0, strokeBlue: 0, strokeWidth: 0d);
+                }
             }
         }
 

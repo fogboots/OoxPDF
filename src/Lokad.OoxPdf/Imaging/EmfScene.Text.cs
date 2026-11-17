@@ -238,6 +238,7 @@ internal sealed partial class EmfScene
             }
 
             var segments = new List<EmfSegment>();
+            var textLayer = new List<EmfTextGlyph>();
             bool syntheticBold = false;
             double pen = 0d;
             for (int i = 0; i < codePoints.Length; i++)
@@ -262,6 +263,8 @@ internal sealed partial class EmfScene
                     {
                         AppendGlyph(segments, outline, (gx, gy) => Map(start + (gx + gy * shear) * scale * stretch, gy * scale));
                     }
+                    (double glyphX, double glyphY) = Map(start, 0d);
+                    textLayer.Add(new EmfTextGlyph(glyph.Source.Font, glyph.GlyphId, codePoints[i], glyphX, glyphY));
                     syntheticBold |= glyph.Source.SyntheticBold;
                 }
 
@@ -296,6 +299,7 @@ internal sealed partial class EmfScene
                 Stroke = syntheticBold ? new EmfStroke(color, em * deviceScale / 35d, null, 1, 1, dc.MiterLimit) : null,
                 Clip = clip
             });
+            if (textLayer.Count != 0) { ops.Add(new EmfTextOp { Glyphs = textLayer, Size = em * deviceScale, Clip = clip }); }
         }
 
         private EmfGlyphFont? Lookup(string family, bool bold, bool italic, int codePoint)

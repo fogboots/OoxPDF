@@ -114,6 +114,13 @@ internal sealed partial class DocxRenderer
             return;
         }
 
+        if (image.Image.Drawing is { } drawing)
+        {
+            RenderDrawingScene(drawing, image.X, image.Y, image.Width, image.Height, graphics, pageImages, fontResources,
+                diagnosticSink, cancellationToken, imageCache, ref imageIndex);
+            return;
+        }
+
         if (image.Image.Chart is { } chart)
         {
             DocxChartResources charts = fontResources.Charts;

@@ -40,6 +40,7 @@ internal static class SafeXml
             using var bounded = new DepthBoundReader(reader, maxDepth, maxNodes, maxAttributes, cancellationToken);
             XDocument document = XDocument.Load(bounded, LoadOptions.None);
             OoxMarkupCompatibility.Normalize(document, cancellationToken);
+            OoxVmlDrawing.Normalize(document, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             return document;
         }

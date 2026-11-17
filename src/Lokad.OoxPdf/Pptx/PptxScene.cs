@@ -388,6 +388,11 @@ internal sealed partial class PptxSceneBuilder
             : default;
     }
 
+    // Shapes from another part (DOCX drawings) read with the document theme and no placeholders.
+    internal static IReadOnlyList<PptxSceneNode> ReadEmbeddedNodes(XElement container, PptxTheme theme, OoxPackage package,
+        IReadOnlyDictionary<string, OoxRelationship> relationships, CancellationToken cancellationToken) =>
+        ReadChildNodes(container, [], theme, PptxColorMap.Default, package, relationships, cancellationToken);
+
     private static IReadOnlyList<PptxSceneNode> ReadChildNodes(
         XElement container,
         IReadOnlyList<XDocument> placeholderSources,

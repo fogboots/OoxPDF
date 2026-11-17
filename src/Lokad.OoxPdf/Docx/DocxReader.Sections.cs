@@ -151,7 +151,8 @@ internal sealed partial class DocxReader
         Dictionary<XElement, (int Offset, int Order)>? positions = null;
         foreach (XElement inline in EnumerateRunOwnedDrawings(run, WordprocessingDrawingNamespace + "inline", cancellationToken))
         {
-            DocxInlineImage? image = ReadDrawingImage(inline, package, relationships, revision, cancellationToken);
+            DocxInlineImage? image = ReadDrawingImage(inline, package, relationships, revision, cancellationToken) ??
+                ReadInlineDrawingScene(inline, package, relationships, revision, cancellationToken);
             if (image is null)
             {
                 continue;
@@ -234,7 +235,8 @@ internal sealed partial class DocxReader
         foreach (XElement inline in EnumerateRunOwnedDrawings(run, WordprocessingDrawingNamespace + "inline", cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (ReadDrawingImage(inline, package, relationships, revision, cancellationToken) is not null)
+            if (ReadDrawingImage(inline, package, relationships, revision, cancellationToken) is not null ||
+                DocxDrawingScenes.IsGroup(inline))
             {
                 continue;
             }
@@ -256,6 +258,9 @@ internal sealed partial class DocxReader
                 .FirstOrDefault(element => element.Attribute("w") is not null);
             string? textBoxStrokeWidthEmuValue = (string?)textBoxOutline?.Attribute("w");
             var position = (positions ??= ReadRunDrawingPositions(run, cancellationToken))[inline];
+            DocxDrawingScene? frame = NeedsDrawingFrame(inline)
+                ? DocxDrawingScenes.Read(inline, package, relationships, LoadDocumentTheme(package, cancellationToken), withoutText: true, cancellationToken)
+                : null;
             textBoxes.Add(new DocxInlineTextBox(
                 (string?)extent?.Attribute("cx"),
                 (string?)extent?.Attribute("cy"),
@@ -264,8 +269,9 @@ internal sealed partial class DocxReader
                 (string?)textBoxBodyProperties?.Attribute("rIns"),
                 (string?)textBoxBodyProperties?.Attribute("bIns"),
                 TextBoxStrokeWidthEmuValue: textBoxStrokeWidthEmuValue,
-                TextBoxStrokeColorHex: ResolveTextBoxOutlineColorHex(textBoxOutline))
+                TextBoxStrokeColorHex: frame is null ? ResolveTextBoxOutlineColorHex(textBoxOutline) : null)
             {
+                Frame = frame,
                 SourceRunIndex = sourceRunIndex,
                 SourceTextOffsetInRun = position.Offset,
                 SourceOrderInRun = position.Order,
@@ -283,6 +289,30 @@ internal sealed partial class DocxReader
         }
 
         return textBoxes;
+    }
+
+    // Shapes and groups that are neither pictures nor text boxes paint as drawings.
+    private static DocxInlineImage? ReadInlineDrawingScene(XElement inline, OoxPackage package,
+        IReadOnlyDictionary<string, OoxRelationship> relationships, DocxRevisionInfo? revision, CancellationToken cancellationToken)
+    {
+        bool textBox = !DocxDrawingScenes.IsGroup(inline) &&
+            EnumerateDrawingOwnedElements(inline, WordprocessingNamespace + "txbxContent", cancellationToken).Any();
+        if (textBox || DocxDrawingScenes.Read(inline, package, relationships, LoadDocumentTheme(package, cancellationToken),
+                withoutText: false, cancellationToken) is not { } scene)
+        { return null; }
+        return new DocxInlineImage(OoxUnits.EmuToPoints(scene.WidthEmu), OoxUnits.EmuToPoints(scene.HeightEmu), string.Empty, null, null)
+        { Drawing = scene, Revisions = RevisionList(revision) };
+    }
+
+    // A text box whose frame has paint or a non-rectangular outline needs the drawing pipeline under its text.
+    private static bool NeedsDrawingFrame(XElement drawing)
+    {
+        XElement? properties = DocxDrawingScenes.Graphic(drawing)?.Element(WordprocessingShapeNamespace + "spPr");
+        if (properties is null) { return false; }
+        bool geometry = properties.Element(DrawingNamespace + "custGeom") is not null ||
+            ((string?)properties.Element(DrawingNamespace + "prstGeom")?.Attribute("prst") ?? "rect") != "rect";
+        bool fill = properties.Elements().Any(e => e.Name.LocalName is "solidFill" or "gradFill" or "blipFill" or "pattFill");
+        return geometry || fill;
     }
 
     private static bool IsInlineChartDrawing(XElement drawing)

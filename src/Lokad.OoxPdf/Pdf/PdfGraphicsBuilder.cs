@@ -39,6 +39,18 @@ internal sealed class PdfGraphicsBuilder
 
     public IReadOnlyList<PdfTransparencyGroupResource> Groups => groups;
 
+    private readonly List<PdfFontResource> fonts = [];
+
+    // Fonts registered while painting (metafile text layers); pages emit them with their own fonts.
+    public IReadOnlyList<PdfFontResource> Fonts => fonts;
+
+    public string RegisterFont(PdfEmbeddedFont font)
+    {
+        string name = "Mtf" + (fonts.Count + 1).ToString(CultureInfo.InvariantCulture);
+        fonts.Add(new PdfFontResource(name, font));
+        return name;
+    }
+
     public void DrawTransparencyGroup(PdfGraphicsBuilder child, PdfRectangle bounds, double opacity)
     {
         string name = RegisterTransparencyGroup(child, bounds);

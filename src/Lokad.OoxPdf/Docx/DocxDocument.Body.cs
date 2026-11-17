@@ -44,6 +44,8 @@ internal sealed record DocxFloatingDrawing(
     string? TextBoxStrokeColorHex = null,
     DocxFloatingShape? Shape = null)
 {
+    // Shapes, groups and filled or non-rectangular text-box frames painted by the slide shape pipeline.
+    public DocxDrawingScene? Scene { get; init; }
     public IReadOnlyList<DocxRevisionInfo> Revisions { get; init; } = [];
     public IReadOnlyList<DocxBodyElement> TextBoxBodyElements { get; init; } = [];
 }

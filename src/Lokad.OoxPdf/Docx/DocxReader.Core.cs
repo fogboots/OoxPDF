@@ -427,7 +427,9 @@ internal sealed partial class DocxReader
             .FirstOrDefault(element => element.Attribute("w") is not null);
         string? textBoxStrokeWidthEmuValue = (string?)textBoxOutline?.Attribute("w");
         string? textBoxStrokeColorHex = ResolveTextBoxOutlineColorHex(textBoxOutline);
-        IReadOnlyList<DocxBodyElement> textBoxBodyElements = ReadTextBoxBodyElements(
+        // A group paints as one drawing: its text boxes are part of the group.
+        bool group = DocxDrawingScenes.IsGroup(anchor);
+        IReadOnlyList<DocxBodyElement> textBoxBodyElements = group ? [] : ReadTextBoxBodyElements(
             anchor,
             styles,
             numbering,
@@ -435,6 +437,13 @@ internal sealed partial class DocxReader
             relationships,
             markupMode,
             cancellationToken);
+        DocxFloatingShape? shape = image is null && textBoxBodyElements.Count == 0 && !group
+            ? ReadFloatingShape(anchor, package, cancellationToken) : null;
+        DocxDrawingScene? scene = image is not null || shape is not null ? null
+            : textBoxBodyElements.Count != 0
+                ? NeedsDrawingFrame(anchor) ? DocxDrawingScenes.Read(anchor, package, relationships, LoadDocumentTheme(package, cancellationToken), withoutText: true, cancellationToken) : null
+                : DocxDrawingScenes.Read(anchor, package, relationships, LoadDocumentTheme(package, cancellationToken), withoutText: false, cancellationToken);
+        if (scene is not null && textBoxBodyElements.Count != 0) { textBoxStrokeColorHex = null; }
 
         return new DocxFloatingDrawing(
             (string?)anchor.Attribute("distT"),
@@ -467,8 +476,9 @@ internal sealed partial class DocxReader
             (string?)textBoxBodyProperties?.Attribute("bIns"),
             TextBoxStrokeWidthEmuValue: textBoxStrokeWidthEmuValue,
             TextBoxStrokeColorHex: textBoxStrokeColorHex,
-            Shape: image is null && textBoxBodyElements.Count == 0 ? ReadFloatingShape(anchor, package, cancellationToken) : null)
+            Shape: shape)
         {
+            Scene = scene,
             Revisions = RevisionList(revision),
             TextBoxBodyElements = textBoxBodyElements
         };

@@ -708,6 +708,8 @@ internal sealed record DocxInlineImage(double WidthPoints, double HeightPoints, 
     // available width at its authored height.
     public RgbColor? RuleFill { get; init; }
     public DocxInlineChart? Chart { get; init; }
+    // A non-picture drawing (shape, group, converted VML) painted by the slide shape pipeline.
+    public DocxDrawingScene? Drawing { get; init; }
     public IReadOnlyList<DocxRevisionInfo> Revisions { get; init; } = [];
     // RV05: source run affinity for ordered inline atoms. Images read from a run
     // carry that run index; -1 means the position was not recorded.
@@ -750,6 +752,8 @@ internal sealed record DocxInlineTextBox(
     // legacy borderless rendering.
     string? TextBoxStrokeColorHex = null)
 {
+    // Geometry, fill and outline painted under the text (non-rectangular or filled frames).
+    public DocxDrawingScene? Frame { get; init; }
     public int SourceRunIndex { get; init; } = -1;
     public int SourceTextOffsetInRun { get; init; }
     public int SourceOrderInRun { get; init; }

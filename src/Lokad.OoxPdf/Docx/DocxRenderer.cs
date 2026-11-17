@@ -1088,7 +1088,8 @@ internal sealed partial class DocxRenderer
 
     private static bool HasRenderableDrawings(IReadOnlyList<DocxFloatingDrawing> drawings)
     {
-        return drawings.Any(drawing => drawing.Image is not null || drawing.TextBoxBodyElements.Count != 0 || drawing.Shape is not null);
+        return drawings.Any(drawing => drawing.Image is not null || drawing.TextBoxBodyElements.Count != 0 || drawing.Shape is not null ||
+            drawing.Scene is not null);
     }
 
     private static bool HasRenderableDrawings(IReadOnlyDictionary<string, IReadOnlyList<DocxFloatingDrawing>> drawingsByType)
@@ -1263,7 +1264,8 @@ internal sealed partial class DocxRenderer
                 layoutPage.Height,
                 content,
                 fontResources.Resources.Where(resource => graphics.UsedFontResourceNames.Contains(resource.ResourceName))
-                    .Concat(PptxRenderer.PruneUnreferencedChartFonts(content, fontResources.Charts.Fonts, cancellationToken)).ToArray(),
+                    .Concat(PptxRenderer.PruneUnreferencedChartFonts(content, fontResources.Charts.Fonts, cancellationToken))
+                    .Concat(graphics.Fonts).ToArray(),
                 pageImages.ToArray(),
                 graphics.ExtGStates,
                 graphics.Shadings,

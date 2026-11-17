@@ -190,6 +190,12 @@ internal sealed partial class DocxRenderer
             RenderFloatingShape(shape, placedX, placedTop, width, height, graphics);
         }
 
+        if (drawing.Drawing.Scene is { } scene)
+        {
+            RenderDrawingScene(scene, placedX, placedTop - height, width, height, graphics, pageImages, fontResources,
+                diagnosticSink, cancellationToken, imageCache, ref imageIndex);
+        }
+
         if (drawing.Drawing.Image is { } image)
         {
             RenderImage(image, placedX, placedTop - height, width, height, graphics, pageImages,
@@ -201,6 +207,19 @@ internal sealed partial class DocxRenderer
         {
             RenderFloatingTextBox(drawing, textBoxLayout, placedX, placedTop, width, height, graphics, pageImages, fontResources, markupContext, pageNumber, pageCount, diagnosticSink, cancellationToken, imageCache, ref imageIndex, pageHeight);
         }
+    }
+
+    private static void RenderDrawingScene(DocxDrawingScene scene, double x, double y, double width, double height,
+        PdfGraphicsBuilder graphics, List<PdfImageResource> pageImages, DocxFontResources fontResources,
+        Action<OoxPdfDiagnostic>? diagnosticSink, CancellationToken cancellationToken,
+        Dictionary<string, PdfImageXObject?> imageCache, ref int imageIndex)
+    {
+        DocxChartResources charts = fontResources.Charts;
+        graphics.SaveState();
+        PptxRenderer.RenderEmbeddedDrawing(graphics, scene.Shape, scene.WidthEmu, scene.HeightEmu, scene.Package, scene.PartName,
+            scene.Relationships, scene.Theme, charts.FontResolver, charts.Fonts, pageImages, imageCache, ref imageIndex,
+            x, y, width, height, diagnosticSink, cancellationToken);
+        graphics.RestoreState();
     }
 
     private static void RenderFloatingShape(DocxFloatingShape shape, double x, double top, double width, double height, PdfGraphicsBuilder graphics)
@@ -363,6 +382,15 @@ internal sealed partial class DocxRenderer
         ref int imageIndex,
         DocxTableCellClipSnapshot? cellClip = null)
     {
+        // Body boxes carry the body emission offset. Mapped static boxes already
+        // own physical Y; their children consume that same frame when painting.
+        double clipX = box.BoxX + ResolveTextEmissionXOffset(markupContext);
+        double clipTop = box.BoxTop - (box.StaticStoryUsesPhysicalY ? 0d : ResolveTextEmissionBaselineOffset(markupContext));
+        if (box.TextBox.Frame is { } frame)
+        {
+            RenderDrawingScene(frame, clipX, clipTop - box.BoxHeight, box.BoxWidth, box.BoxHeight, graphics, pageImages, fontResources,
+                diagnosticSink, cancellationToken, imageCache, ref imageIndex);
+        }
         if (box.TextLines.Count == 0 &&
             box.InlineImages.Count == 0 &&
             box.TableRows.Count == 0)
@@ -370,10 +398,6 @@ internal sealed partial class DocxRenderer
             return;
         }
 
-        // Body boxes carry the body emission offset. Mapped static boxes already
-        // own physical Y; their children consume that same frame when painting.
-        double clipX = box.BoxX + ResolveTextEmissionXOffset(markupContext);
-        double clipTop = box.BoxTop - (box.StaticStoryUsesPhysicalY ? 0d : ResolveTextEmissionBaselineOffset(markupContext));
         graphics.SaveState();
         // RV05 inline-box probe (Word COM reference edge-inlinebox): stroked inline
         // frames paint their outline under the text like floating boxes.

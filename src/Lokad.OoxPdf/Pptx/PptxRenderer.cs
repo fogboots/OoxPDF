@@ -99,7 +99,7 @@ internal sealed partial class PptxRenderer
             // RV11: admit the emitted content bytes before yielding, so a small
             // content budget rejects before the writer encodes or stores the page.
             OoxConversionBudget.Current?.ChargePdfContentBytes(content.Length);
-            yield return new PdfPage(context.Document.SlideWidthPoints, context.Document.SlideHeightPoints, content, renderedFonts.Resources.Concat(pageChartFonts).ToArray(), pageImages, graphics.ExtGStates.ToArray(), graphics.Shadings.ToArray(), graphics.Patterns.ToArray(), linkAnnotations, PdfFallbackFont.ToResources(fontResolver.UsedFallbackFaces), graphics.Groups.ToArray(), graphics.ShadingPatterns.ToArray());
+            yield return new PdfPage(context.Document.SlideWidthPoints, context.Document.SlideHeightPoints, content, renderedFonts.Resources.Concat(pageChartFonts).Concat(graphics.Fonts).ToArray(), pageImages, graphics.ExtGStates.ToArray(), graphics.Shadings.ToArray(), graphics.Patterns.ToArray(), linkAnnotations, PdfFallbackFont.ToResources(fontResolver.UsedFallbackFaces), graphics.Groups.ToArray(), graphics.ShadingPatterns.ToArray());
         }
     }
 
