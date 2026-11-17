@@ -19,27 +19,14 @@ internal sealed class OoxContentTypes
         XDocument document = SafeXml.Load(stream, cancellationToken);
         var defaults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var conflicted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Two different types for one extension ("xml" and "XML") or one part leave neither
-        // guess in force, and an incomplete or unsafe declaration is skipped: the package
-        // still opens, and a part without a type reads as absent. Failing the whole document
-        // here rejected files Word and LibreOffice open.
+        // A second declaration for one extension ("png" and "PNG") or one part is ignored and
+        // the first stands, as in LibreOffice; an incomplete or unsafe declaration is skipped.
+        // Failing the whole document rejected files Word and LibreOffice open, and dropping
+        // both declarations would leave every such part untyped and so absent.
         void Declare(Dictionary<string, string> types, string key, string contentType)
         {
-            if (conflicted.Contains(key))
-            {
-                return;
-            }
-
-            if (types.TryGetValue(key, out string? existing) && existing != contentType)
-            {
-                types.Remove(key);
-                conflicted.Add(key);
-                return;
-            }
-
-            types[key] = contentType;
+            types.TryAdd(key, contentType);
         }
 
         foreach (XElement element in document.Root?.Elements() ?? [])
@@ -54,7 +41,6 @@ internal sealed class OoxContentTypes
             if (element.Name == OoxNamespaces.ContentTypesNamespace + "Default" &&
                 (string?)element.Attribute("Extension") is { } extension)
             {
-                // Conflict keys keep defaults and overrides apart: an override name starts with '/'.
                 Declare(defaults, extension.TrimStart('.'), contentType);
             }
             else if (element.Name == OoxNamespaces.ContentTypesNamespace + "Override" &&

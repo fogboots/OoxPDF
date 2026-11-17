@@ -531,32 +531,39 @@ internal sealed class OoxPackage
     private static Dictionary<string, OoxRelationship> ParseRelationshipDocument(XDocument document, string sourcePartName, CancellationToken cancellationToken)
     {
         var relationships = new Dictionary<string, OoxRelationship>(StringComparer.Ordinal);
-        var ambiguousIds = new HashSet<string>(StringComparer.Ordinal);
 
         // One unreadable relationship must not fail the whole package. It reads as absent, so
         // whatever refers to it degrades like any dangling reference (Word's repair and
-        // LibreOffice do the same): a relationship without an id, type or target, one whose
-        // internal target is not a package part (a mailto: or file: link missing
-        // TargetMode="External", a path above the root), and every relationship of an id
-        // used twice, since neither guess is safe.
+        // LibreOffice do the same): a relationship without an id, type or target, or one
+        // whose internal target is not a package part (a mailto: or file: link missing
+        // TargetMode="External", a path above the root).
         foreach (XElement element in document.Root?.Elements(OoxNamespaces.PackageRelationshipsNamespace + "Relationship") ?? [])
         {
             cancellationToken.ThrowIfCancellationRequested();
             string? id = (string?)element.Attribute("Id");
             string? type = (string?)element.Attribute("Type");
             string? target = (string?)element.Attribute("Target");
-            if (string.IsNullOrEmpty(id) || type is null || string.IsNullOrWhiteSpace(target) || ambiguousIds.Contains(id))
+            if (string.IsNullOrEmpty(id) || type is null || string.IsNullOrWhiteSpace(target))
             {
-                continue;
-            }
-
-            if (relationships.Remove(id))
-            {
-                ambiguousIds.Add(id);
                 continue;
             }
 
             string? targetMode = (string?)element.Attribute("TargetMode");
+            // An id written twice with the same type and target is a producer's harmless
+            // repeat: keep one. Differing copies are ambiguous, and dropping both could lose
+            // the header or picture either one names, so the document stays invalid.
+            if (relationships.TryGetValue(id, out OoxRelationship? existing))
+            {
+                if (existing.Type == OoxNamespaces.NormalizeRelationshipType(type) &&
+                    existing.Target == target &&
+                    string.Equals(existing.TargetMode, targetMode, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                throw new InvalidDataException("OOXML package contains a duplicate relationship id.");
+            }
+
             string? resolvedTarget = null;
             if (targetMode?.Equals("External", StringComparison.OrdinalIgnoreCase) != true)
             {

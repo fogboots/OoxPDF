@@ -54,16 +54,18 @@ internal static class OoxmlBoundsTests
         TestAssert.Throws<InvalidDataException>(() => OoxPackage.Open(stream, CancellationToken.None));
     }
 
-    public static void ConflictingContentTypesLeaveNeitherGuess()
+    public static void TheFirstContentTypeDeclarationStands()
     {
         // "xml" and "XML" name one extension; two overrides name one part. Word and LibreOffice
-        // open such files, so the package opens with neither declaration in force.
+        // open such files: the first declaration stands, so no part loses its type.
         using MemoryStream packageStream = TestFixtures.CreateZipPackage(new Dictionary<string, string>
         {
             ["[Content_Types].xml"] = TestContentTypes(
                 "<Default Extension=\"xml\" ContentType=\"application/xml\"/>",
                 "<Default Extension=\"XML\" ContentType=\"text/xml\"/>",
                 "<Default Extension=\"bin\" ContentType=\"application/octet-stream\"/>",
+                "<Default Extension=\"png\" ContentType=\"image/png\"/>",
+                "<Default Extension=\"PNG\" ContentType=\"image/PNG\"/>",
                 "<Override PartName=\"/word/document.xml\" ContentType=\"application/a\"/>",
                 "<Override PartName=\"/word/document.xml\" ContentType=\"application/b\"/>",
                 "<Override PartName=\"/word/styles.xml\" ContentType=\"application/c\"/>",
@@ -72,11 +74,13 @@ internal static class OoxmlBoundsTests
             ["word/styles.xml"] = "<w:styles/>",
             ["word/other.xml"] = "<x/>",
             ["word/data.bin"] = "x",
+            ["word/media/image1.png"] = "x",
         });
 
         OoxPackage package = OoxPackage.Open(packageStream, CancellationToken.None);
-        TestAssert.True(package.GetPart("/word/document.xml") is null, "A part with conflicting overrides and no default has no type.");
-        TestAssert.True(package.GetPart("/word/other.xml") is null, "Conflicting defaults leave the extension untyped.");
+        TestAssert.Equal("application/a", package.GetPart("/word/document.xml")!.ContentType);
+        TestAssert.Equal("application/xml", package.GetPart("/word/other.xml")!.ContentType);
+        TestAssert.Equal("image/png", package.GetPart("/word/media/image1.png")!.ContentType);
         TestAssert.Equal("application/c", package.GetPart("/word/styles.xml")!.ContentType);
         TestAssert.Equal("application/octet-stream", package.GetPart("/word/data.bin")!.ContentType);
     }
@@ -110,7 +114,7 @@ internal static class OoxmlBoundsTests
         TestAssert.NotNull(package.GetPart("/word/document.xml"));
     }
 
-    public static void DuplicateRelationshipIdsResolveToNeither()
+    public static void RejectsDuplicateRelationshipIds()
     {
         using MemoryStream packageStream = TestFixtures.CreateZipPackage(new Dictionary<string, string>
         {
@@ -123,8 +127,26 @@ internal static class OoxmlBoundsTests
             ["word/document.xml"] = "<w:document/>",
         });
 
+        // Differing copies are ambiguous: dropping both could lose a header or picture.
         OoxPackage package = OoxPackage.Open(packageStream, CancellationToken.None);
-        TestAssert.Equal(0, package.GetRelationships("/", CancellationToken.None).Count);
+        TestAssert.Throws<InvalidDataException>(() => package.GetRelationships("/", CancellationToken.None));
+    }
+
+    public static void IdenticalDuplicateRelationshipsKeepOne()
+    {
+        using MemoryStream packageStream = TestFixtures.CreateZipPackage(new Dictionary<string, string>
+        {
+            ["[Content_Types].xml"] = ContentTypesWithXmlDefault(),
+            ["word/_rels/document.xml.rels"] = TestRelationships(
+                "<Relationship Id=\"rId8\" Type=\"header\" Target=\"header1.xml\"/>",
+                "<Relationship Id=\"rId8\" Type=\"header\" Target=\"header1.xml\"/>"),
+            ["word/document.xml"] = "<w:document/>",
+        });
+
+        OoxPackage package = OoxPackage.Open(packageStream, CancellationToken.None);
+        IReadOnlyList<OoxRelationship> relationships = package.GetRelationships("/word/document.xml", CancellationToken.None);
+        TestAssert.Equal(1, relationships.Count);
+        TestAssert.Equal("/word/header1.xml", relationships[0].ResolvedTarget);
     }
 
     public static void UnreadableRelationshipsReadAsAbsent()
