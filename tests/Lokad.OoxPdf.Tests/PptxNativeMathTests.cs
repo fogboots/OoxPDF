@@ -12,7 +12,7 @@ internal static class PptxNativeMathTests
     public static void PptxNativeFractionUsesSharedMathLayout()
     {
         var native = new PptxNativeMath(Shape());
-        TestAssert.True(native.TryPrepare(new PresentationFontResolver(new Resolver()), "Math1", default,
+        TestAssert.True(native.TryPrepare(new PresentationFontResolver(new Resolver()), "Math1", _ => null, default,
             out var box, out var resource, out var reason), reason ?? "Native fraction failed.");
         TestAssert.True(box!.Rules.Count == 1 && box.Glyphs.Count == 4, "Fraction must contain four glyphs and its bar.");
         TestAssert.True(box.Glyphs[0].BaselineY > box.Glyphs[^1].BaselineY, "Numerator must be above denominator.");
@@ -31,7 +31,7 @@ internal static class PptxNativeMathTests
         TestAssert.True(selected.Annotation<PptxNativeMath>() is not null, "Native source must survive fallback selection.");
         TestAssert.True(selected.Descendants(DrawingNamespace + "t").Any(), "Fallback must remain available.");
         native.Element(PresentationNamespace + "txBody")!.Element(DrawingNamespace + "p")!.Add(new XElement(DrawingNamespace + "r", new XElement(DrawingNamespace + "t", "ordinary prose")));
-        TestAssert.True(!new PptxNativeMath(native).TryPrepare(new PresentationFontResolver(new Resolver()), "M", default,
+        TestAssert.True(!new PptxNativeMath(native).TryPrepare(new PresentationFontResolver(new Resolver()), "M", _ => null, default,
             out _, out _, out _), "Mixed text must retain fallback until inline layout is supported.");
     }
     public static void PptxNativeMathRendersThroughSlidePipeline()
